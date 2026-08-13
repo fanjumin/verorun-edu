@@ -91,6 +91,10 @@ def get_schema_version() -> str:
         ).fetchone()
         return row['value'] if row else '0.0.0'
     except Exception:
+        try:
+            get_db().rollback()
+        except Exception:
+            pass
         return '0.0.0'
 
 
@@ -489,28 +493,33 @@ def upsert_agent(name: str, identifier: str, role_type: str, description: str,
                  system_prompt: str, capabilities: str, is_active: int = 1):
     """注册或更新 profiler Agent（幂等）。"""
     conn = get_db()
-    exists = conn.execute(
-        'SELECT id FROM agent_registry WHERE name=%s AND role_type=%s',
-        (name, role_type)
-    ).fetchone()
-    if exists:
-        conn.execute('''
-            UPDATE agent_registry
-            SET description=%s, domain=%s, provider=%s, model_name=%s,
-                system_prompt=%s, capabilities=%s, is_active=%s,
-                identifier=%s, updated_at=NOW()
-            WHERE id=%s
-        ''', (description, domain, provider, model_name,
-              system_prompt, capabilities, is_active, identifier, exists['id']))
-    else:
-        conn.execute('''
-            INSERT INTO agent_registry
-            (name, identifier, role_type, description, domain, provider,
-             model_name, system_prompt, capabilities, is_active)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ''', (name, identifier, role_type, description, domain, provider,
-              model_name, system_prompt, capabilities, is_active))
-    conn.commit()
+    try:
+        exists = conn.execute(
+            'SELECT id FROM agent_registry WHERE name=%s AND role_type=%s',
+            (name, role_type)
+        ).fetchone()
+        if exists:
+            conn.execute('''
+                UPDATE agent_registry
+                SET description=%s, domain=%s, provider=%s, model_name=%s,
+                    system_prompt=%s, capabilities=%s, is_active=%s,
+                    identifier=%s, updated_at=NOW()
+                WHERE id=%s
+            ''', (description, domain, provider, model_name,
+                  system_prompt, capabilities, is_active, identifier, exists['id']))
+        else:
+            conn.execute('''
+                INSERT INTO agent_registry
+                (name, identifier, role_type, description, domain, provider,
+                 model_name, system_prompt, capabilities, is_active)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ''', (name, identifier, role_type, description, domain, provider,
+                  model_name, system_prompt, capabilities, is_active))
+        conn.commit()
+    except Exception:
+        # 注册失败不能留下 aborted 连接（曾导致 PG 连接池耗尽）
+        conn.rollback()
+        raise
 
 
 def get_agent(identifier: str):

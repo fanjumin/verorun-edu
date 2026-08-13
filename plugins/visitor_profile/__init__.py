@@ -33,6 +33,40 @@ BEFORE_PROMPT_RESOLVE = 'before_prompt_resolve'
 _SCHEMA = 'visitor_profile'
 
 
+def ensure_schema() -> bool:
+    """幂等建表：执行 migrations/v1.0.0_initial.sql（CREATE TABLE IF NOT EXISTS）。
+
+    on_install / on_enable 共用。此前建表仅在 on_install 触发，磁盘发现直接启用
+    的插件未执行 install，导致 agent_registry 等表缺失 → upsert_agent 查询 aborted
+    → PG 连接池耗尽。
+    """
+    from plugins._base.db import get_raw_connection
+    try:
+        migration_path = os.path.join(
+            os.path.dirname(__file__), 'migrations', 'v1.0.0_initial.sql')
+        with open(migration_path, 'r', encoding='utf-8') as f:
+            sql = f.read()
+        conn = get_raw_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SET search_path TO %s, public" % _SCHEMA)
+            cur.execute(sql)
+            conn.commit()
+        finally:
+            conn.close()
+        # 记录 schema 版本（§10.6）
+        try:
+            from .models import set_schema_version
+            set_schema_version(VisitorProfilePlugin.version)
+        except Exception:
+            pass
+        logger.info('visitor_profile schema ensured')
+        return True
+    except Exception as e:
+        logger.error('schema init failed: %s', e)
+        return False
+
+
 class VisitorProfilePlugin(BasePlugin):
     name = 'Visitor Profile Engine'
     identifier = 'visitor_profile'
@@ -43,37 +77,17 @@ class VisitorProfilePlugin(BasePlugin):
     # ── 生命周期 ──────────────────────────────────────────────────
 
     def on_install(self, registry=None) -> bool:
-        """安装时执行 migrations/v1.0.0_initial.sql（建 Schema + 表）。"""
-        from plugins._base.db import get_raw_connection
-        try:
-            migration_path = os.path.join(
-                os.path.dirname(__file__), 'migrations', 'v1.0.0_initial.sql')
-            with open(migration_path, 'r', encoding='utf-8') as f:
-                sql = f.read()
-            conn = get_raw_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("SET search_path TO %s, public" % _SCHEMA)
-                cur.execute(sql)
-                conn.commit()
-            finally:
-                conn.close()
-            # 记录 schema 版本（§10.6）
-            try:
-                from .models import set_schema_version
-                set_schema_version(self.version)
-            except Exception:
-                pass
-            logger.info('visitor_profile schema initialized')
-            return True
-        except Exception as e:
-            logger.error('schema init failed: %s', e)
-            return False
+        """安装时执行 migrations/v1.0.0_initial.sql（建 Schema + 表，幂等）。"""
+        return ensure_schema()
 
     def on_enable(self, registry=None) -> bool:
         """启用时：注册事件监听 + Filter + Agent，并检测推荐插件。"""
         from .services.profile_extractor import ProfileExtractor
         from .services.profile_retriever import ProfileRetriever
+
+        # 确保 schema 已建（磁盘发现直接启用的插件此前未走 install 建表；
+        # 表缺失会导致 agent_registry 查询 aborted → PG 连接池耗尽）
+        ensure_schema()
 
         # 运行时检测推荐插件（松耦合：检测到即增强，未检测到无影响）
         self._detect_companion_plugins(registry)

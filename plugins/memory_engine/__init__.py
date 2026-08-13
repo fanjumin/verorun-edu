@@ -175,7 +175,7 @@ class MemoryEnginePlugin(BasePlugin):
             conn.execute("CREATE SCHEMA IF NOT EXISTS %s" % SCHEMA)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS schema_version ("
-                " version    varchar(16) PRIMARY KEY,"
+                " version    varchar(128) PRIMARY KEY,"
                 " applied_at timestamptz NOT NULL DEFAULT now())"
             )
             conn.execute("SET search_path TO %s, public" % SCHEMA)

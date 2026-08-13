@@ -90,11 +90,9 @@ def init_chatbot_tables():
         created_at      TIMESTAMPTZ DEFAULT NOW(),
         updated_at      TIMESTAMPTZ DEFAULT NOW()
     )''')
-    # 幂等添加 identifier 列（兼容旧表）
-    try:
-        conn.execute("ALTER TABLE agent_registry ADD COLUMN identifier TEXT DEFAULT ''")
-    except Exception:
-        pass
+    # 幂等添加 identifier 列（兼容旧表；PG 的 ADD COLUMN IF NOT EXISTS 不报错，
+    # 不再因列已存在而 abort/rollback 导致同事务建表被撤销）
+    conn.execute("ALTER TABLE agent_registry ADD COLUMN IF NOT EXISTS identifier TEXT DEFAULT ''")
 
     # 3. 对话会话日志表
     conn.execute('''CREATE TABLE IF NOT EXISTS chatbot_sessions (
@@ -197,28 +195,33 @@ def upsert_agent(name: str, role_type: str, description: str, domain: str,
                  capabilities: str, is_active: int = 1, identifier: str = ''):
     """注册或更新 Agent"""
     conn = get_chatbot_db()
-    exists = conn.execute(
-        'SELECT id FROM agent_registry WHERE name=%s AND role_type=%s',
-        (name, role_type)
-    ).fetchone()
-    if exists:
-        conn.execute('''
-            UPDATE agent_registry
-            SET description=%s, domain=%s, provider=%s, model_name=%s,
-                system_prompt=%s, capabilities=%s, is_active=%s,
-                identifier=%s, updated_at=NOW()
-            WHERE id=%s
-        ''', (description, domain, provider, model_name,
-              system_prompt, capabilities, is_active, identifier, exists['id']))
-    else:
-        conn.execute('''
-            INSERT INTO agent_registry
-            (name, identifier, role_type, description, domain, provider, model_name,
-             system_prompt, capabilities, is_active)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ''', (name, identifier, role_type, description, domain, provider, model_name,
-              system_prompt, capabilities, is_active))
-    conn.commit()
+    try:
+        exists = conn.execute(
+            'SELECT id FROM agent_registry WHERE name=%s AND role_type=%s',
+            (name, role_type)
+        ).fetchone()
+        if exists:
+            conn.execute('''
+                UPDATE agent_registry
+                SET description=%s, domain=%s, provider=%s, model_name=%s,
+                    system_prompt=%s, capabilities=%s, is_active=%s,
+                    identifier=%s, updated_at=NOW()
+                WHERE id=%s
+            ''', (description, domain, provider, model_name,
+                  system_prompt, capabilities, is_active, identifier, exists['id']))
+        else:
+            conn.execute('''
+                INSERT INTO agent_registry
+                (name, identifier, role_type, description, domain, provider, model_name,
+                 system_prompt, capabilities, is_active)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ''', (name, identifier, role_type, description, domain, provider, model_name,
+                  system_prompt, capabilities, is_active))
+        conn.commit()
+    except Exception:
+        # 注册失败不能留下 aborted 连接（曾导致 PG 连接池耗尽）
+        conn.rollback()
+        raise
 
 
 def get_agent(agent_id: str):

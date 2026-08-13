@@ -65,6 +65,21 @@
     }
   ],
 
+  "declare_roles": [
+    {
+      "name": "Memory Curator",
+      "slug": "memory_curator",
+      "role_type": "sub",
+      "domain": "memory",
+      "description": "Curator sub-agent for memory extraction and reflexion.",
+      "managed_modules": ["plugins.memory_engine"],
+      "provider": "",
+      "model_name": "",
+      "system_prompt": "",
+      "is_active": 1
+    }
+  ],
+
   "dashboard": {
     "stats": [
       { "key": "memories_total",       "title": "Total Memories",  "type": "counter" },

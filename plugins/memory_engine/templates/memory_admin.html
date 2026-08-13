@@ -1,17 +1,17 @@
 // templates/memory_admin.html — bare JS partial (NO <script> tags allowed)
 // Rendered by admin SPA via window['l_memory_admin']() on menu click.
 window.l_memory_admin = function () {
-  var root = document.getElementById('page-content');
+  var root = document.getElementById('mc');
   if (!root) return;
   root.innerHTML =
-    '<div class="card"><div class="card-header">' + T('Agent Memory') +
+    '<div class="card"><div class="card-header">' + '{{ _("Agent Memory") }}' +
     '</div><div class="card-body">' +
     '<div style="display:flex;gap:6px;margin-bottom:12px">' +
-    '<input id="mem-search" class="input" placeholder="' + T('Search memories...') + '"/> ' +
-    '<button class="btn" onclick="window.__memLoad()">' + T('Search') + '</button>' +
+    '<input id="mem-search" class="input" placeholder="' + '{{ _("Search memories...") }}' + '"/> ' +
+    '<button class="btn" onclick="window.__memLoad()">' + '{{ _("Search") }}' + '</button>' +
     '</div>' +
-    '<table class="table" id="mem-table"><thead><tr><th>' + T('Type') + '</th><th>' +
-    T('Content') + '</th><th>' + T('Owner') + '</th><th>' + T('Quality') +
+    '<table class="table" id="mem-table"><thead><tr><th>' + '{{ _("Type") }}' + '</th><th>' +
+    '{{ _("Content") }}' + '</th><th>' + '{{ _("Owner") }}' + '</th><th>' + '{{ _("Quality") }}' +
     '</th><th></th></tr></thead><tbody></tbody></table></div></div>';
 
   window.__memLoad = function () {
@@ -27,7 +27,7 @@ window.l_memory_admin = function () {
           '<td>' + esc(m.owner_id || '-') + '</td>' +
           '<td>' + esc((m.quality_score || 0).toFixed(2)) + '</td>' +
           '<td><button class="btn btn-danger" onclick="window.__memDel(\'' +
-          m.id + '\')">' + T('Delete') + '</button></td>';
+          m.id + '\')">' + '{{ _("Delete") }}' + '</button></td>';
         tb.appendChild(tr);
       });
     });

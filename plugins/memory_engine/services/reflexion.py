@@ -23,9 +23,14 @@ class ReflexionService:
     def __init__(self, config: dict):
         self._config = config or {}
         self._pool = ThreadPoolExecutor(max_workers=1)
+        # 反思任务自身也会经过 AgentRunner → emit AGENT_TASK_COMPLETED，
+        # 该标志防止"反思失败→再次反思"的无限递归循环。
+        self._reflecting = False
 
     def on_task_completed(self, **kwargs):
         """Event handler for AGENT_TASK_COMPLETED (action hook)."""
+        if self._reflecting:
+            return
         if not self._config.get('enable_reflexion', True):
             return
         task = kwargs.get('task') or {}
@@ -43,6 +48,18 @@ class ReflexionService:
         self._pool.submit(self._reflect, task, result, agent_id, failed, retries)
 
     def _reflect(self, task, result, agent_id, failed, retries):
+        """Reflexion 入口：置位防循环标志后执行，异常统一记录。"""
+        if self._reflecting:
+            return
+        self._reflecting = True
+        try:
+            self._reflect_impl(task, result, agent_id, failed, retries)
+        except Exception as e:
+            logger.error('reflexion run failed: %s', e)
+        finally:
+            self._reflecting = False
+
+    def _reflect_impl(self, task, result, agent_id, failed, retries):
         """Run curator reflexion mode and persist structured output."""
         try:
             agent_config = self._load_curator_config()
@@ -56,7 +73,10 @@ class ReflexionService:
                 'failed': failed,
                 'retries': retries,
             }, ensure_ascii=False)
-            resp = runner.execute({'type': 'memory_reflexion', 'payload': payload})
+            resp = runner.execute({
+                'title': 'Memory Reflexion',
+                'description': payload,
+            })
             parsed = self._parse_reflexion(resp)
             if not parsed:
                 return
@@ -90,7 +110,7 @@ class ReflexionService:
         if isinstance(resp, tuple) and resp:
             text = str(resp[0])
         elif isinstance(resp, dict):
-            text = str(resp.get('result') or resp.get('output') or '')
+            text = str(resp.get('response') or resp.get('result') or resp.get('output') or '')
         try:
             data = json.loads(text)
         except (ValueError, AttributeError):
@@ -121,7 +141,7 @@ class ReflexionService:
         from agent_matrix.models import get_db
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM public.agents"
-                " WHERE identifier = 'memory_curator' AND source_plugin = 'memory_engine'"
+                "SELECT * FROM agent_matrix"
+                " WHERE slug = 'memory_curator' AND is_active = 1"
             ).fetchone()
         return dict(row) if row else {}

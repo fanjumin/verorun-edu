@@ -4,11 +4,11 @@
 
 VeroRun EDU is a self-hosted, knowledge-centric AI operating system built for research institutes, universities, and educational organizations that operate inside an intranet. It transforms institutional knowledge into a living, queryable, AI-empowered asset — with built-in project isolation, document RAG, DAG workflows, content automation, and enterprise-grade health/backup safeguards.
 
-> **Version:** 0.56.3
+> **Version:** 0.56.4
 > **Repository:** https://github.com/fanjumin/verorun-edu
 > **Edition:** VeroRun EDU Edition
 
-[![Version](https://img.shields.io/badge/version-0.56.3-blue)]()
+[![Version](https://img.shields.io/badge/version-0.56.4-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11+-green)](https://www.python.org/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL-336791)](https://www.postgresql.org/)
 

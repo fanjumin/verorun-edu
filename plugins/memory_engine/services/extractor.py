@@ -82,9 +82,10 @@ class MemoryExtractor:
                 'query': task.get('user_query') or task.get('query'),
                 'result': str(result)[:2000],
             }
-            resp = runner.execute(
-                {'type': 'memory_extract', 'payload': json.dumps(transcript, ensure_ascii=False)}
-            )
+            resp = runner.execute({
+                'title': 'Memory Extract',
+                'description': json.dumps(transcript, ensure_ascii=False),
+            })
             candidates = self._parse_candidates(resp)
             self._persist(candidates, agent_id, task, source='auto')
         except Exception as e:
@@ -99,7 +100,7 @@ class MemoryExtractor:
         if isinstance(resp, tuple) and resp:
             text = str(resp[0])
         elif isinstance(resp, dict):
-            text = str(resp.get('result') or resp.get('output') or '')
+            text = str(resp.get('response') or resp.get('result') or resp.get('output') or '')
         try:
             data = json.loads(text)
             items = data.get('memories') or []
@@ -122,12 +123,12 @@ class MemoryExtractor:
         return any(p.search(text) for p in _PII_PATTERNS)
 
     def _load_curator_config(self) -> dict:
-        """Load the memory_curator agent row (read-only public.agents)."""
+        """Load the memory_curator agent row (agent_matrix, registered via declare_roles)."""
         from agent_matrix.models import get_db
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM public.agents"
-                " WHERE identifier = 'memory_curator' AND source_plugin = 'memory_engine'"
+                "SELECT * FROM agent_matrix"
+                " WHERE slug = 'memory_curator' AND is_active = 1"
             ).fetchone()
         return dict(row) if row else {}
 
