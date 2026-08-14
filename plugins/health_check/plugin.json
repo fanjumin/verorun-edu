@@ -1,6 +1,8 @@
 {
     "name": "Health Check",
+    "name_i18n_key": "plugin.name",
     "identifier": "health_check",
+    "python_dependencies": {"required": ["redis"], "optional": {}},
     "version": "1.5.0",
     "description": "System Health Check — Automated health monitoring + alerting + trend analysis",
     "author": "VeroRun",
@@ -8,7 +10,7 @@
     "category": "system",
     "icon": "health",
     "icon_url": "",
-    "tags": ["监控", "告警", "健康检查"],
+    "tags": ["health", "monitoring", "alerting"],
     "screenshots": [],
     "readme_url": "",
     "dependencies": {},
@@ -31,10 +33,10 @@
             "identifier": "health_ai_fixer",
             "name": "Health AI Fixer",
             "description": "LLM-powered health check result analysis and repair suggestion engine",
-            "role_type": "system",
+            "role_type": "sub",
             "domain": "health",
-            "prompt_file": "",
-            "model_policy": {"provider": "auto", "max_tokens": 4096},
+            "prompt_file": "agents/health_ai_fixer_prompt.md",
+            "model_policy": {"strategy": "inherit"},
             "capabilities": ["health_analysis", "fix_suggestion", "root_cause_analysis"],
             "enabled_by_default": false
         }

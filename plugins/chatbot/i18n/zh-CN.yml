@@ -1,4 +1,5 @@
 # AI Advisor 插件中文字符串（English key → 中文，§12.1）
+plugin.name: AI 顾问
 "AI Advisor": "AI 顾问"
 "Loading...": "加载中..."
 "Load failed": "加载失败"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==========================================================================
 # VeroRun — deploy/lib/common.sh
-# Shared function library: sourced by deploy/install.sh / install-local.sh / install-dev.sh / install-code.sh
+# Shared function library: sourced by deploy/install.sh / deploy/install-code.sh
 # via `source`. Defines only functions and idempotent defaults, with no top-level side effects.
 # ==========================================================================
 # Usage conventions (must be followed by every script):
@@ -20,8 +20,8 @@
 [ "${INSTALL_SCRIPT}" = "bash" ] && INSTALL_SCRIPT="install.sh"
 
 # ── Idempotent default config (does not override values already set by the script) ─────────────────────────────────
-# 审计 C-2：GIT_REPO is defined by each entry script (install.sh / install-local.sh / install-code.sh /
-# install-dev.sh) before sourcing this file — common.sh does not define the repo URL, avoiding source confusion.
+# 审计 C-2：GIT_REPO is defined by each entry script (install.sh / install-code.sh) before sourcing this file —
+# common.sh does not define the repo URL, avoiding source confusion.
 : "${GIT_BRANCH:=master}"
 : "${APP_USER:=${SUDO_USER:-$(whoami)}}"
 : "${APP_HOME:=/home/${APP_USER}/verorun}"
@@ -32,7 +32,7 @@
 # 审计 H-5：Sparse-checkout whitelist (base list). Entry scripts can extend it by appending,
 # e.g. install-code.sh runs SPARSE_DIRS="${SPARSE_DIRS} plugins" after sourcing.
 # 审计 M-1：appends scripts/ (the README references the scripts/dev_start.py local dev script).
-: "${SPARSE_DIRS:=admin auth-center main_site health_service veroguard plugin_manager agent_matrix orchestrator i18n captcha-service shared providers themes static deploy scripts plugins/site_domains}"
+: "${SPARSE_DIRS:=admin auth-center main_site health_service veroguard plugin_manager agent_matrix orchestrator i18n shared providers themes static deploy scripts plugins/site_domains}"
 : "${FORCE_UPDATE:=0}"              # 审计 C-3：force-overwrite local modifications during update (used with --force)
 : "${PIP_MIRROR:=}"
 : "${PIP_MIRROR_DETECTED:=}"
@@ -63,7 +63,9 @@ fail_step() { echo -e "${FAIL} $1"; }
 _ensure_apt_mirror() {
     local _marker="/etc/apt/.verorun_mirror_applied"
     [ -f "${_marker}" ] && return 0
-    if command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 3 http://archive.ubuntu.com >/dev/null 2>&1; then
+    # 审计 F-15：探测实际 apt 元数据文件（Release）而非根路径——GFW 常放行小请求但阻断大流量下载，
+    # 根路径可达不代表 apt 下载可用；jammy 为兼容基线（archive.ubuntu.com 保留历史发行版 Release）
+    if command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 3 --max-time 8 http://archive.ubuntu.com/ubuntu/dists/jammy/Release -o /dev/null 2>/dev/null; then
         touch "${_marker}"; return 0
     fi
     echo -e "${WARN} Ubuntu default mirror unreachable → switching to Aliyun"
@@ -323,11 +325,11 @@ ensure_git_auth() {
 
 # ══════════════════════════════════════════════════════════════════════
 # Git repo URL auto-resolution (审计 Y-1：one-click deployment works across networks without assuming git is pre-installed)
-# - HTTPS public repos (install.sh / install-local.sh): probe the git smart
+# - HTTPS public repos (install.sh — all non-code types): probe the git smart
 #   HTTP endpoint with curl (equivalent to git ls-remote but relies only on curl); when direct GitHub is unreachable,
 #   automatically fall back to ghfast.top / ghproxy.net mirrors (the ghproxy.com mirror used by earlier versions is dead;
 #   the mirrors here are verified usable; multi-level fallback supported).
-# - SSH private repos (install-code.sh / install-dev.sh): automatically configure SSH over 443
+# - SSH private repos (install-code.sh): automatically configure SSH over 443
 #   (ssh.github.com:443), bypassing the domestically blocked port 22; the repo URL itself is unchanged.
 # Called before do_install / do_update pull the code; all four scripts take effect through this shared function.
 # ══════════════════════════════════════════════════════════════════════
@@ -382,7 +384,7 @@ _resolve_git_repo() {
         *) return 0 ;;
     esac
 
-    # SSH private repos (install-code.sh / install-dev.sh): SSH over 443 to bypass the port-22 block
+    # SSH private repos (install-code.sh): SSH over 443 to bypass the port-22 block
     if echo "${GIT_REPO}" | grep -q '^git@github.com:'; then
         _setup_ssh_over_443
         return 0
@@ -441,6 +443,28 @@ _setup_ssl_cert() {
     if [ "${DEPLOY_TYPE:-}" != "production" ] || [ -z "${DOMAIN:-}" ]; then
         return 0  # only triggered by the domain edition install.sh; the other three scripts naturally skip
     fi
+
+    # 审计 F-06：内网私有CA模式（CERT_SOURCE=private_ca）不走 certbot——
+    # 证书由 deploy/intranet/setup_private_ca.sh 预置于 /etc/letsencrypt/live/<domain>/，
+    # write_nginx_config 已按该路径自动启用 443；此处仅确认证书存在并置 DEPLOY_PROTOCOL=https。
+    if [ "${CERT_SOURCE:-}" = "private_ca" ]; then
+        step "HTTPS certificate (private CA)"
+        local _ca_cert_dir="/etc/letsencrypt/live/${DOMAIN}"
+        if [ -f "${_ca_cert_dir}/fullchain.pem" ] && [ -f "${_ca_cert_dir}/privkey.pem" ]; then
+            if grep -q "^DEPLOY_PROTOCOL=" "${APP_HOME}/.env"; then
+                sed -i "s/^DEPLOY_PROTOCOL=.*/DEPLOY_PROTOCOL=https/" "${APP_HOME}/.env"
+            else
+                echo "DEPLOY_PROTOCOL=https" >> "${APP_HOME}/.env"
+            fi
+            nginx -t && systemctl reload nginx 2>/dev/null || true
+            done_step "Private CA certificate detected — DEPLOY_PROTOCOL=https"
+        else
+            echo -e "${WARN} CERT_SOURCE=private_ca but no certificate at ${_ca_cert_dir} — SSL skipped."
+            echo -e "${INFO} Run first: sudo bash deploy/intranet/setup_private_ca.sh ${DOMAIN}"
+        fi
+        return 0
+    fi
+
     step "HTTPS certificate (Let's Encrypt)"
 
     local _email="${SSL_EMAIL:-}"
@@ -1057,11 +1081,33 @@ do_seed() {
 
     # 审计 NEW-M1：credentials are finalized here, ensuring print_summary shows the same password that seed_data.py actually writes.
     # With no credentials, generate a default admin (administrator + random password) and always pass it to seed_data.py via environment variables.
+    local _auto_admin=0
     if [ -z "${VR_ADMIN_USERNAME}" ]; then
         VR_ADMIN_USERNAME="administrator"
     fi
     if [ -z "${VR_ADMIN_PASSWORD}" ]; then
         VR_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(8))")
+        _auto_admin=1
+    fi
+    # 审计 S2：非交互安装自动生成的 admin 密码必须在安装输出中显式打印一次，
+    # 否则 curl|bash 安装后无人能登录 admin（print_summary 只显示 ***HIDDEN***）。
+    # 审计 F-05：同时持久化到 ${APP_HOME}/.verorun-admin-credentials（chmod 600 / chown APP_USER），
+    # 避免"仅打印一次、终端滚动后永久丢失"；明文仅存在于该文件与安装终端输出。
+    if [ "${_auto_admin}" = "1" ]; then
+        echo -e "${WARN} ──────────────────────────────────────────────"
+        echo -e "${WARN} Auto-generated admin credentials — SAVE NOW:"
+        echo -e "${OK}   Admin username: ${VR_ADMIN_USERNAME}"
+        echo -e "${OK}   Admin password: ${VR_ADMIN_PASSWORD}"
+        echo -e "${WARN} ──────────────────────────────────────────────"
+        local _cred_file="${APP_HOME}/.verorun-admin-credentials"
+        umask 077
+        cat > "${_cred_file}" <<EOF
+VR_ADMIN_USERNAME=${VR_ADMIN_USERNAME}
+VR_ADMIN_PASSWORD=${VR_ADMIN_PASSWORD}
+EOF
+        chmod 600 "${_cred_file}"
+        chown "${APP_USER}:${APP_USER}" "${_cred_file}" 2>/dev/null || true
+        echo -e "${INFO} Credentials also saved (chmod 600): ${_cred_file}"
     fi
 
     # 审计 C1：admin credentials are passed to seed_data.py via environment variables, avoiding exposure in the process command line
@@ -1085,6 +1131,13 @@ do_rollback() {
         target_commit="HEAD~1"
         echo -e "${WARN} No saved commit found, falling back to HEAD~1"
     fi
+    # 审计 F-14：reset --hard 前保存当前状态到保护分支，回滚后可安全找回原提交
+    local _rollback_branch="rollback-$(date +%s)"
+    if git branch "${_rollback_branch}" 2>/dev/null; then
+        echo -e "${INFO} Current state saved to branch: ${_rollback_branch}"
+    else
+        echo -e "${WARN} Failed to create safety branch — proceeding anyway"
+    fi
     if git reset --hard "${target_commit}"; then
         systemctl restart verorun-admin verorun-auth verorun-main verorun-health verorun-guardian
         echo -e "${OK} Rolled back to $(git log --oneline -1)"
@@ -1094,10 +1147,10 @@ do_rollback() {
 }
 
 # ══════════════════════════════════════════════════════════════════════
-# C-1 unified deployment functions (审计 R4 enabled: shared by the four entry scripts, driven by DEPLOY_TYPE)
-# DEPLOY_TYPE: production | lan | code | dev
-# Defined by each entry script before sourcing this file (install.sh=production, install-local=lan,
-# install-code=code, install-dev=dev). The four entry scripts no longer define same-named functions themselves,
+# C-1 unified deployment functions (审计 R4 enabled: shared by the entry scripts, driven by DEPLOY_TYPE)
+# DEPLOY_TYPE: production | lan | code | edu
+# Defined by each entry script before sourcing this file (install.sh=production/lan/edu, install-code=code).
+# The entry scripts no longer define same-named functions themselves,
 # so Bash no longer has "later definitions overriding earlier ones"; the unified versions here take effect directly.
 # ══════════════════════════════════════════════════════════════════════
 
@@ -1141,7 +1194,9 @@ generate_env() {
         production)
             _env_header="VeroRun production config — auto-generated by ${INSTALL_SCRIPT}"
             _deploy_domain="${DOMAIN:-}"
-            _deploy_protocol="https"
+            # 审计 F-11：仅在有域名时默认 https；无域名（纯 HTTP 运行）保持 http，
+            # 否则 DEPLOY_PROTOCOL=https 会让应用层 JWT secure cookie 在 HTTP 下登录失效。
+            [ -n "${DOMAIN:-}" ] && _deploy_protocol="https"
             ;;
         code)
             _env_header="VeroRun config — auto-generated by ${INSTALL_SCRIPT} (no-domain / LAN mode, full plugins)"
@@ -1774,8 +1829,10 @@ do_install() {
     # 审计 NEW-H1：VeroGuard integrity manifest build consistent with the four scripts
     build_veroguard_manifest
 
-    # Production gate: refuse to continue if DEBUG got enabled in .env
-    assert_debug_disabled
+    # Production gate: refuse to continue if DEBUG got enabled in .env (dev type exempt — debug on by design)
+    if [ "${DEPLOY_TYPE}" != "dev" ]; then
+        assert_debug_disabled
+    fi
 
     # Only production: do not start systemd / nginx when DOMAIN is not configured
     if [ "${DEPLOY_TYPE}" = "production" ] && [ -z "${DOMAIN}" ]; then
@@ -1962,8 +2019,10 @@ do_update() {
     # 审计 R3-M2：rebuild the VeroGuard integrity manifest after a code update, preventing stale baselines from triggering false positives
     build_veroguard_manifest
 
-    # Production gate: refuse to continue if DEBUG got enabled in .env
-    assert_debug_disabled
+    # Production gate: refuse to continue if DEBUG got enabled in .env (dev type exempt — debug on by design)
+    if [ "${DEPLOY_TYPE}" != "dev" ]; then
+        assert_debug_disabled
+    fi
 
     step "Update Python dependencies"
     # 审计 P-1：automatically rebuilds when the venv is missing or its Python < 3.12 (compatible with upgrades from older 3.10 environments)
@@ -2091,7 +2150,7 @@ print_summary() {
             echo "  ║  WARNING: Admin account NOT created — admin panel inaccessible"
             echo "  ║  To fix: sudo bash deploy/${INSTALL_SCRIPT} seed                      ║"
             fi
-            # 审计 R3-M3：consistent with install-local.sh, show the admin credentials
+            # 审计 R3-M3：show the admin credentials
             if [ "${APPROVE_MIGRATE:-0}" = "1" ]; then
             echo "  ╠══════════════════════════════════════════════════════════════╣"
             echo "  ║  Admin login: ${VR_ADMIN_USERNAME:-administrator} / ***HIDDEN***"
@@ -2146,7 +2205,7 @@ print_summary() {
             fi
             echo "  ║  Plugins:     $(ls -d ${APP_HOME}/plugins/*/ 2>/dev/null | wc -l) directories installed                    ║"
             echo "  ║  Code size:   $(du -sh ${APP_HOME} 2>/dev/null | cut -f1)                              ║"
-            # 审计 R3-M3：consistent with install-local.sh, show the admin credentials
+            # 审计 R3-M3：show the admin credentials
             if [ "${APPROVE_MIGRATE:-0}" = "1" ]; then
             echo "  ╠══════════════════════════════════════════════════════════════╣"
             echo "  ║  Admin login: ${VR_ADMIN_USERNAME:-administrator} / ***HIDDEN***"
@@ -2195,7 +2254,7 @@ print_summary() {
             echo "  ║  LAN access:  http://${PUBLIC_IP}/  (same paths)              ║"
             fi
             echo "  ║  Plugins:     NOT installed (install via Admin panel)          ║"
-            # 审计 R3-M3：consistent with install-local.sh, show the admin credentials
+            # 审计 R3-M3：show the admin credentials
             if [ "${APPROVE_MIGRATE:-0}" = "1" ]; then
             echo "  ╠══════════════════════════════════════════════════════════════╣"
             echo "  ║  Admin login: ${VR_ADMIN_USERNAME:-administrator} / ***HIDDEN***"

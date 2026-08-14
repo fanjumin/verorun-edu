@@ -174,6 +174,9 @@ Action parameter formats:
 - update_url:  {"table": "table_name", "record_id": 123, "field": "url_column", "new_value": "https://new-url.com"}
 - mark_disabled: {"table": "table_name", "record_id": 123}
 - run_sql: {"sql": "UPDATE table SET field='value' WHERE id=%s", "params": [123]}
+Note: run_sql is restricted to non-destructive statements (SELECT / UPDATE / DELETE).
+      UPDATE/DELETE MUST include a WHERE clause. Never suggest DROP/ALTER/TRUNCATE/
+      CREATE/GRANT/REVOKE or any other destructive statement — they will be rejected.
 Note: The database is PostgreSQL — always use %s placeholder (NOT ?) for parameters.
 - notify_admin: {"message": "Alert message", "level": "warning/critical"}
 

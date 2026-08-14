@@ -2,6 +2,7 @@
   "name": "Visitor Profile Engine",
   "name_i18n_key": "plugin.name",
   "identifier": "visitor_profile",
+  "python_dependencies": {"required": [], "optional": {}},
   "version": "1.1.0",
   "description": "AI-powered visitor behavior profiling engine with LLM Agent semantic extraction, pgvector storage, and dynamic persona injection",
   "author": "VeroRun",
@@ -71,7 +72,7 @@
   "menu": {
     "group": "Users & Support",
     "items": [
-      { "key": "visitor_profiles", "icon": "users", "label": "Visitor Profiles", "label_i18n_key": "menu.visitor_profiles" }
+      { "key": "visitor_profiles", "icon": "users", "label": "Visitor Profiles", "label_i18n_key": "menu.visitor_profiles", "embed_url": "/admin/visitor_profile/" }
     ]
   },
 

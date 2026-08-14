@@ -1,3 +1,4 @@
+plugin.name: Email Service
 email_management: "Email Management"
 write_email: "Write Email"
 inbox: "Inbox"

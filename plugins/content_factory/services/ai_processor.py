@@ -20,25 +20,9 @@ _DEFAULT_MODEL_POLICY = {
 
 
 def _resolve_model_args(model_policy: dict) -> dict:
-    """按 model_policy 三层策略解析模型参数，返回 get_gateway().chat() 可用的 kwargs。"""
-    from agent_matrix.engine import _get_system_key  # noqa: F401
-    strategy = model_policy.get('strategy', 'inherit')
-    # 1. tier：读 system_config model_tier_{tier}（provider_model_id），命中则用之
-    if strategy == 'tier':
-        tier = model_policy.get('tier', 'standard')
-        pm_id = _get_system_key(f'model_tier_{tier}')
-        if pm_id:
-            return {'provider_model_id': pm_id}
-    # 2. explicit：政策内显式 provider+model
-    if strategy == 'explicit':
-        provider = model_policy.get('provider', '')
-        model = model_policy.get('model', '')
-        if provider and model:
-            return {'provider': provider, 'model': model}
-    # 3. inherit / fallback：全局默认（system_config，PROVIDER_CONFIGS 兜底）
-    provider = _get_system_key('ai_text_provider') or 'siliconflow'
-    model = _get_system_key('ai_text_model') or 'deepseek-ai/DeepSeek-V3'
-    return {'provider': provider, 'model': model}
+    """按 model_policy 三层策略解析模型参数（§3.4，委托 agent_matrix.model_resolver 统一实现）。"""
+    from agent_matrix.model_resolver import resolve_model_args
+    return resolve_model_args(model_policy)
 
 
 def _call_qwen(prompt: str, max_tokens: int = 4096) -> Optional[str]:

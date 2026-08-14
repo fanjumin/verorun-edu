@@ -13,7 +13,7 @@ Adding a new checker takes 3 steps:
 See DEVELOPER.md for detailed tutorial.
 """
 
-import os, sys, json, time, socket, ssl, subprocess
+import os, sys, json, re, time, socket, ssl, subprocess
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Type, Tuple
@@ -76,6 +76,49 @@ def _is_private_host(host: str) -> bool:
     except _socket.gaierror:
         return False  # Can't resolve — don't block (may be public hostname)
     return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Auto-Fix Safety — LLM 建议的修复动作执行前必须通过白名单校验
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SQL_BLOCKED_KEYWORDS = re.compile(
+    r'\b(DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|COPY|VACUUM|REINDEX|'
+    r'COMMENT|ATTACH|DETACH)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_safe_run_sql(sql: str) -> bool:
+    """run_sql 白名单校验：仅允许 SELECT / UPDATE / DELETE。
+
+    - 拒绝 DROP/ALTER/TRUNCATE/CREATE/GRANT 等破坏性关键字
+    - UPDATE/DELETE 强制携带 WHERE，防止全表误操作
+    """
+    if not sql or not isinstance(sql, str):
+        return False
+    if _SQL_BLOCKED_KEYWORDS.search(sql):
+        return False
+    head = sql.lstrip().upper()
+    if head.startswith('SELECT'):
+        return True
+    if head.startswith(('UPDATE', 'DELETE')):
+        return bool(re.search(r'\bWHERE\b', sql, re.IGNORECASE))
+    return False
+
+
+def _is_safe_http_url(url: str) -> bool:
+    """SSRF 防护：仅允许 http/https，且目标主机非内网/环回/链路本地地址。
+
+    复用 §11.3 的 _is_private_host 检查，防止 LLM 提供的 URL 指向内网资源。
+    """
+    from urllib.parse import urlparse
+    if not url or not isinstance(url, str):
+        return False
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    return not _is_private_host(parsed.hostname)
 
 
 def _extract_host_from_url(url: str) -> str:
@@ -290,18 +333,6 @@ class BaseHealthCheck(ABC):
         except Exception as e:
             elapsed = int((time.time() - start) * 1000)
             return 0, elapsed, str(e)
-
-    def _exec(self, cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
-        """Execute a shell command, returns (returncode, stdout, stderr)."""
-        try:
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=timeout
-            )
-            return result.returncode, result.stdout.strip(), result.stderr.strip()
-        except subprocess.TimeoutExpired:
-            return -1, '', 'timeout'
-        except Exception as e:
-            return -1, '', str(e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1005,6 +1036,8 @@ class FixSuggestion:
 
             elif suggestion.action == FIX_ACTION_RUN_SQL:
                 if conn and 'sql' in params:
+                    if not _is_safe_run_sql(params['sql']):
+                        return False  # SQL 未通过白名单校验，拒绝执行
                     sql_params = params.get('params') or []
                     conn.execute(params['sql'], sql_params)
                     return True
@@ -1027,8 +1060,9 @@ class FixSuggestion:
             elif suggestion.action == FIX_ACTION_RESTART_WORKER:
                 # HUP a non-gunicorn worker process
                 worker_name = params.get('worker_name', '')
-                if worker_name:
-                    import subprocess
+                # 白名单约束：仅允许进程名（字母/数字/下划线/连字符/点，1-64 字符），
+                # 防止 AI 建议的异常 pattern（含正则元字符）注入 pkill -f
+                if worker_name and re.fullmatch(r'[A-Za-z0-9_.\-]{1,64}', worker_name):
                     subprocess.run(['pkill', '-HUP', '-f', worker_name],
                                    capture_output=True, timeout=5)
                 return True
@@ -1043,9 +1077,9 @@ class FixSuggestion:
                     return True
 
             elif suggestion.action == FIX_ACTION_FLUSH_CDN:
-                # POST to CDN refresh URL
+                # POST to CDN refresh URL (SSRF 防护：仅允许 http/https 且目标非内网地址)
                 cdn_url = os.environ.get('CDN_REFRESH_URL', params.get('url', ''))
-                if cdn_url:
+                if cdn_url and _is_safe_http_url(cdn_url):
                     import urllib.request
                     try:
                         urllib.request.urlopen(cdn_url, timeout=10)

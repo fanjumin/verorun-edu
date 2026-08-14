@@ -148,7 +148,6 @@ from .checkers.my_custom_checker import CustomCheck  # Triggers @register
 | `config_schema` | `dict` (Class attr) | JSON Schema |
 | `check()` | Method (Required) | Execute check → CheckResult |
 | `_http_get(url, timeout)` | Method | HTTP GET request → (status, ms, body) |
-| `_exec(cmd, timeout)` | Method | Shell command → (rc, stdout, stderr) |
 
 ### CheckResult Class
 
@@ -164,7 +163,6 @@ CheckResult(
 ### Utility Methods
 
 - `self._http_get(url, timeout=5)` → `(status_code, elapsed_ms, body)`
-- `self._exec(cmd, timeout=10)` → `(returncode, stdout, stderr)`
 
 ---
 

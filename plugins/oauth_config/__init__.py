@@ -31,7 +31,7 @@ def init_i18n(t_fn):
 def _plugin_log(msg, level='info'):
     """Log to plugin-specific logger channel (§10.5)."""
     try:
-        from plugins._base.logging import get_plugin_logger
+        from plugin_manager.logger import get_plugin_logger
         logger = get_plugin_logger('oauth_config')
         getattr(logger, level)(msg)
     except Exception:
@@ -90,13 +90,13 @@ class OauthConfigPlugin(_BASE_CLS):
 
     # ── §12.5 Uninstall cleanup ──
     def on_uninstall(self):
-        """Clean up oauth_config schema data on plugin uninstall (§12.5 卸载零残留)."""
+        """Clean up main-DB oauth_providers table on plugin uninstall (§12.5 卸载零残留)."""
         try:
             from .models import get_db
             with get_db() as conn:
                 conn.execute('DROP TABLE IF EXISTS oauth_providers')
                 conn.commit()
-            _plugin_log('[OauthConfigPlugin] oauth_providers table dropped (uninstall)')
+            _plugin_log('[OauthConfigPlugin] oauth_providers table dropped (main DB, uninstall)')
         except Exception as e:
             _plugin_log(f'[OauthConfigPlugin] on_uninstall cleanup failed: {e}', 'error')
         return True

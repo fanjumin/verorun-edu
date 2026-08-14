@@ -1,8 +1,8 @@
 # VeroRun — Multi-Agent AI 引擎操作系统
 
 [![Version](https://img.shields.io/badge/version-0.56.5-blue.svg)](CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)]()
+[![License](https://img.shields.io/badge/license-EULA%20v1.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)]()
 [![Plugins](https://img.shields.io/badge/plugins-30-orange.svg)]()
 
 **VeroRun 是部署在客户自有服务器上的 Multi-Agent AI 引擎操作系统——一套为企业级私有部署设计的通用智能执行引擎。**
@@ -51,10 +51,9 @@
 | 端口 | 域名 | systemd 单元 | 应用 | 职责 |
 |---|---|---|---|---|
 | 8081 | 主域名 | `verorun-main` | `auth_server` | 主站、登录、验证码代理 |
-| 8083 | `platform.*` | `verorun-auth` | `main_site`（Platform Console） | 用户控制台、订阅管理 |
-| 8084 | `admin.*` | `verorun-admin` | `admin.app` | 管理后台、Agent 矩阵、自动化、CMS |
+| 8083 | `platform.*` | `verorun-auth` | `main_site`（Platform Console） | 用户控制台、订阅管理、拼图验证码 |
+| 8084 | `admin.*` | `verorun-admin` | `admin.app` | 管理后台、Agent 矩阵、自动化、CMS、拼图验证码 |
 | 8085 | — | `verorun-health` | `health_service.app` | 内部健康检查端点 |
-| 8090 | — | 独立进程 | `captcha-service` | 拼图验证码 + 行为分析 |
 | — | — | `verorun-guardian` | `veroguard.guardian` | 统一守护（健康 + 完整性 + 心跳） |
 
 > 注：`auth-center/` 是被各服务 import 的 **共享代码库**（models / services / routes），并非独立运行在 8083 的服务；8083 实际运行 `main_site` 应用。
@@ -63,9 +62,8 @@
 
 | 层级 | 技术 |
 |---|---|
-| 后端 | Python 3.11+、Flask、Gunicorn |
+| 后端 | Python 3.12+、Flask、Gunicorn |
 | 数据库 | PostgreSQL（生产，含 pgvector）/ SQLite（开发回落） |
-| 缓存 | Redis |
 | 反向代理 | Nginx + Let's Encrypt |
 | 工作流编辑器 | React 18.3.1 + React Flow |
 | 可视化 | Chart.js、ECharts、Quill.js |
@@ -90,20 +88,12 @@ sudo bash deploy/install.sh install your-domain.com --region=cn       # 中国�
 sudo bash deploy/install.sh install your-domain.com --region=global    # 国际（默认）
 ```
 
-安装后执行 `deploy/install.sh seed` 初始化数据、`deploy/install.sh configure-domain` 配置域名，certbot 自动签发 SSL。
+安装自动初始化数据库与管理账号；仅重置数据时重新执行 `deploy/install.sh seed`。使用 `deploy/install.sh configure-domain` 配置域名，certbot 自动签发 SSL。
 
 ### Docker
 
 ```bash
 docker compose up -d
-```
-
-### 本地开发
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-python scripts/dev_start.py
 ```
 
 ---
@@ -254,7 +244,7 @@ python scripts/dev_start.py
 
 ## 商业模型与区域路由
 
-**三阶段漏斗**：开源核心免费获客（`verorun-base` 公共仓库）→ 插件购买、订阅与商业授权持续变现 → VeroGuard 在客户侧保护代码资产与许可权益。**数据飞轮愿景**：以领域知识资产为核心，知识库经业务使用持续自进化，支撑领域模型微调与智能设备训练。
+**三阶段漏斗**：标准企业包与教育版免费分发获客（公开仓库 `verorun-pro` 与 `verorun-edu`）→ 插件购买、订阅与商业授权持续变现 → VeroGuard 在客户侧保护代码资产与许可权益。**数据飞轮愿景**：以领域知识资产为核心，知识库经业务使用持续自进化，支撑领域模型微调与智能设备训练。
 
 **区域路由**：`VERORUN_REGION=cn` → `api.verorun.cn`；`=global` → `api.verorun.com`。所有远程服务（许可 / 心跳 / 守护）按区域动态解析，支持单 URL 环境变量覆盖。
 
@@ -276,9 +266,10 @@ python scripts/dev_start.py
 
 ```text
 verorun-pro/
+├── auth_server.py          # 主站后端 / 认证中心（8081）
 ├── admin/                  # 管理后台（8084）
 ├── auth-center/            # 共享鉴权/模型/服务/路由（非独立服务）
-├── main_site/              # 主站后端（8081）
+├── main_site/              # Platform Console 后端（8083）
 ├── agent_matrix/           # AI 引擎：多 Agent 编排
 │   ├── roles/              # 9 角色 YAML 定义
 │   ├── prompts/            # 动态提示词种子（15 个 .md，运行时从 agent_prompts 表加载）
@@ -292,7 +283,6 @@ verorun-pro/
 ├── veroguard/              # VeroGuard 守护层（7 模块）
 ├── providers/              # 可插拔 Provider 抽象
 ├── sdks/                   # JavaScript SDK（5 包）
-├── captcha-service/        # 独立拼图验证码服务（8090）
 ├── health_service/         # 健康检查服务（8085）
 ├── i18n/                   # 国际化（en, zh-CN）
 ├── deploy/                 # 部署脚本、Nginx 配置
@@ -330,6 +320,18 @@ verorun-pro/
 
 ## 许可证
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+VeroRun 采用**源码可见（Source-Available）的专有许可**，依据 [VeroRun Base EULA v1.0](LICENSE) 分发，**并非 OSI 开源协议**。
 
-Copyright (c) 2026 Fan Jumin. 详见 [LICENSE](LICENSE)。
+**分发矩阵**：
+
+| 仓库 | 性质 | 内容 | 许可管辖 |
+|---|---|---|---|
+| `verorun-pro` | 公开 | 标准企业包（通用引擎，插件经商店按需安装） | EULA v1.0 |
+| `verorun-code` | 私有 | 完整源码（全部插件、授权组件与 VeroGuard） | 私有分发条款 |
+| `verorun-edu` | 公开 | 教育版（EDU 插件白名单，无商业模块） | EULA v1.0 |
+
+**EULA v1.0 要点**：可见 Python 源码可读可改（用于定制与集成）；预编译二进制（.pyd/.so/.dll/可执行文件）禁止反编译、反汇编、逆向；禁止再分发、转售、二次许可；禁止用于竞争性产品；不得移除版权、许可密钥或 DRM 机制；商业生产部署需有效商业授权。
+
+**与 VeroGuard 的一致性**：VeroGuard 的健康监控、完整性校验、自我保护与远程命令等能力，是 EULA 第 2.2 条（禁止反编译二进制）与第 3 条（禁止移除授权/DRM 机制）的落地执行，用于守护本许可的授权边界与商业资产。正因如此，本项目采用 **EULA 专有许可而非 MIT**——MIT 的"自由使用与再分发"承诺与上述资产守护机制在法律上无法自洽，而 EULA 使二者一致。
+
+Copyright (c) 2024-2026 VeroRun AI. All rights reserved. 详见 [LICENSE](LICENSE)。

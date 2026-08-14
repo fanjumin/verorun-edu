@@ -2,6 +2,7 @@
   "name": "Agent Memory & Self-Evolution",
   "name_i18n_key": "plugin.name",
   "identifier": "memory_engine",
+  "python_dependencies": {"required": [], "optional": {}},
   "version": "1.0.0",
   "description": "Hierarchical agent memory with vector retrieval, Reflexion-based self-evolution and prompt metrics.",
   "author": "VeroRun",
@@ -101,7 +102,7 @@
     ]
   },
 
-  "admin_url": "/admin/memory",
+  "admin_url": "",
 
   "settings_schema": {
     "type": "object",

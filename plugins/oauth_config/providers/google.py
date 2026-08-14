@@ -28,7 +28,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             with get_db() as conn:
                 row = conn.execute(
                     'SELECT client_key, client_secret FROM oauth_providers '
-                    'WHERE provider=? AND is_active=1 LIMIT 1',
+                    'WHERE provider=%s AND is_active=1 LIMIT 1',
                     ('google',)
                 ).fetchone()
             if row:

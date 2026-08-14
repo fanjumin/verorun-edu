@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""OAuth Plugin — 独立数据库模型
+"""OAuth Plugin — 主库数据模型（§12.10）
 
-oauth_providers 表在插件独立 Schema oauth_config 中，与主库完全解耦。
+oauth_providers 表收敛至主库 public schema，由 init_oauth_tables() 幂等创建。
+admin/services/auth 统一通过主库连接读写，不再使用独立 schema。
 """
-import psycopg2
 from contextlib import contextmanager
-from plugins._base.db import PgConnection
-from plugins._base.db import get_raw_connection
 
 # §10.5 standard logging — safe: __init__.py defines _plugin_log at module level, no circular import
 from plugins.oauth_config import _plugin_log
@@ -14,20 +12,14 @@ from plugins.oauth_config import _plugin_log
 
 @contextmanager
 def get_db():
-    """获取插件独立数据库连接"""
-    conn = get_raw_connection()
-    conn.autocommit = False
-    try:
-        wrapped = PgConnection(conn)
-        wrapped.execute("CREATE SCHEMA IF NOT EXISTS oauth_config")
-        wrapped.execute("SET search_path TO oauth_config")
-        yield wrapped
-    finally:
-        conn.close()
+    """获取主库连接（§12.10 — oauth_providers 共享主库 public schema）"""
+    from models import get_db as _main_get_db
+    with _main_get_db() as conn:
+        yield conn
 
 
 def init_oauth_tables():
-    """创建 oauth_providers 表（幂等）"""
+    """在主库 public schema 创建 oauth_providers 表（幂等）"""
     with get_db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS oauth_providers (
@@ -43,4 +35,4 @@ def init_oauth_tables():
             )
         """)
         conn.commit()
-    _plugin_log('[OAuthPlugin] Schema oauth_config is ready')
+    _plugin_log('[OAuthPlugin] oauth_providers table is ready in main DB (public schema)')

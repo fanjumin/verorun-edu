@@ -1,8 +1,10 @@
 {
     "name": "OAuth Login Config",
+    "name_i18n_key": "plugin.name",
     "identifier": "oauth_config",
+    "python_dependencies": {"required": ["authlib"], "optional": {}},
     "version": "1.1.0",
-    "category": "System",
+    "category": "system",
     "tags": ["oauth", "login", "sso", "douyin", "wechat", "alipay", "google", "github", "facebook", "telegram"],
     "icon": "social_media",
     "description": "OAuth 第三方登录完整插件 — 登录/回调/配置管理。禁用后第三方登录功能完全消失。",
@@ -11,7 +13,6 @@
     "dependencies": {},
     "enabled": true,
     "config": {},
-    "agents": [],
     "permissions": [
         "api:read",
         "api:write",
@@ -30,7 +31,7 @@
     "dashboard": {
         "stats": []
     },
-    "admin_url": "#oauth",
+    "admin_url": "",
     "menu": {
         "group": "Security & Compliance",
         "key": "oauth",

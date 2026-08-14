@@ -121,7 +121,7 @@ def get_enabled_oauth_providers(max_providers=2):
     enabled = []
     seen = set()
 
-    # 1. DB-configured providers (oauth_providers table — 插件独立数据库)
+    # 1. DB-configured providers (oauth_providers 表 — 主库 public schema，§12.10)
     try:
         from plugins.oauth_config.models import get_db
         with get_db() as conn:

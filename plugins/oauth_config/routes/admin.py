@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """OAuth Login Config Plugin — /admin/oauth/configs 配置管理路由
 
-oauth_providers 表在插件独立数据库 oauth.db 中，通过 models.get_db() 读写。
+oauth_providers 表收敛至主库 public schema（§12.10），通过 models.get_db() 读写。
 """
 
 from i18n import _
@@ -33,7 +33,7 @@ def _log(admin_id, action, target_type='', target_id='', detail=''):
 
 
 def _get_oauth_db():
-    """插件独立数据库连接（oauth_providers 表）"""
+    """主库连接（oauth_providers 表，§12.10）"""
     from plugins.oauth_config.models import get_db
     return get_db()
 
@@ -54,7 +54,7 @@ def admin_oauth_configs():
         else:
             rows = conn.execute(
                 'SELECT id, site_domain, provider, client_key, client_secret, is_active, created_at, updated_at '
-                'FROM oauth_providers WHERE provider=? ORDER BY site_domain',
+                'FROM oauth_providers WHERE provider=%s ORDER BY site_domain',
                 (provider,)
             ).fetchall()
     data = []
@@ -95,7 +95,7 @@ def admin_oauth_save():
     # 检查该站点已启用的第三方登录数量（最多 2 个）
     with _get_oauth_db() as conn:
         existing_for_domain = conn.execute(
-            'SELECT provider FROM oauth_providers WHERE site_domain=? AND is_active=1',
+            'SELECT provider FROM oauth_providers WHERE site_domain=%s AND is_active=1',
             (domain,)
         ).fetchall()
         existing_providers = [r['provider'] for r in existing_for_domain]
@@ -109,7 +109,7 @@ def admin_oauth_save():
     with _get_oauth_db() as conn:
         if not secret:
             existing = conn.execute(
-                'SELECT client_secret FROM oauth_providers WHERE site_domain=? AND provider=?',
+                'SELECT client_secret FROM oauth_providers WHERE site_domain=%s AND provider=%s',
                 (domain, provider)
             ).fetchone()
             if existing and existing['client_secret']:
@@ -119,18 +119,18 @@ def admin_oauth_save():
 
         now = datetime.now().isoformat()
         row = conn.execute(
-            'SELECT id FROM oauth_providers WHERE site_domain=? AND provider=?',
+            'SELECT id FROM oauth_providers WHERE site_domain=%s AND provider=%s',
             (domain, provider)
         ).fetchone()
         if row:
             conn.execute(
-                'UPDATE oauth_providers SET client_key=?, client_secret=?, is_active=1, updated_at=? WHERE id=?',
+                'UPDATE oauth_providers SET client_key=%s, client_secret=%s, is_active=1, updated_at=%s WHERE id=%s',
                 (key, secret, now, row['id'])
             )
         else:
             conn.execute(
                 'INSERT INTO oauth_providers (site_domain, provider, client_key, client_secret, created_at, updated_at) '
-                'VALUES (?, ?, ?, ?, ?, ?)',
+                'VALUES (%s, %s, %s, %s, %s, %s)',
                 (domain, provider, key, secret, now, now)
             )
         conn.commit()
@@ -148,7 +148,7 @@ def admin_oauth_delete(cfg_id):
     if e:
         return e
     with _get_oauth_db() as conn:
-        conn.execute('DELETE FROM oauth_providers WHERE id=?', (cfg_id,))
+        conn.execute('DELETE FROM oauth_providers WHERE id=%s', (cfg_id,))
         conn.commit()
     _log(a['user_id'], 'delete_oauth', 'oauth', str(cfg_id), 'oauth config deleted')
     return jsonify({'success': True})

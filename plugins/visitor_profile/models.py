@@ -20,51 +20,15 @@ PostgreSQL 独立 Schema `visitor_profile`（单库多 Schema，插件标准 §9
 """
 import json
 import logging
-import psycopg2
-import psycopg2.extras
 from datetime import datetime, timedelta
 
-from plugins._base.db import get_raw_connection
+from plugins._base.db import PgConnection, get_raw_connection
 
 logger = logging.getLogger('visitor_profile.models')
 
 SCHEMA = 'visitor_profile'
 
 _conn = None
-
-
-class _PgConnection:
-    """psycopg2 connection adapter — sqlite3 风格接口（%s 占位符直通）。"""
-
-    def __init__(self, conn):
-        self._conn = conn
-
-    def execute(self, sql, params=None):
-        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(sql, params or ())
-        return cur
-
-    def commit(self):
-        self._conn.commit()
-
-    def rollback(self):
-        self._conn.rollback()
-
-    def close(self):
-        self._conn.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            try:
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-        else:
-            self._conn.rollback()
-        return False
 
 
 def get_db():
@@ -77,7 +41,7 @@ def get_db():
         raw.commit()
         raw.cursor().execute("SET search_path TO %s, public" % SCHEMA)
         raw.commit()
-        _conn = _PgConnection(raw)
+        _conn = PgConnection(raw)
     return _conn
 
 

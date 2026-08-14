@@ -1,4 +1,5 @@
 # AI Advisor 插件英文字符串（identity 映射，§12.1）
+plugin.name: AI Advisor
 "AI Advisor": "AI Advisor"
 "Loading...": "Loading..."
 "Load failed": "Load failed"

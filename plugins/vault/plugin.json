@@ -1,5 +1,6 @@
 {
     "name": "Vault",
+    "name_i18n_key": "plugin.name",
     "identifier": "vault",
     "version": "2.2.0",
     "description": "Data vault — full/incremental backup, AES-256-GCM encryption, scheduled backups, audit logging, multi-target storage",
@@ -8,15 +9,16 @@
     "category": "system",
     "icon": "vault",
     "tags": ["backup", "storage", "system", "encryption", "scheduler"],
-    "dependencies": {
-        "python": ["croniter", "cryptography", "paramiko", "requests"],
-        "python_optional": {
+    "python_dependencies": {
+        "required": ["croniter", "cryptography", "paramiko", "requests"],
+        "optional": {
             "boto3": "S3 storage adapter",
             "oss2": "Alibaba Cloud OSS adapter",
             "azure-storage-blob": "Azure Blob Storage adapter",
             "google-cloud-storage": "Google Cloud Storage adapter"
         }
     },
+    "dependencies": {},
     "enabled": true,
     "config": {
         "backup_dir": "data/vault",
@@ -92,6 +94,13 @@
         "key": "vault",
         "icon": "vault",
         "label": "Vault"
+    },
+    "dashboard": {
+        "stats": [
+            { "key": "total_backups", "title": "备份总数", "type": "counter" },
+            { "key": "success_backups", "title": "成功备份", "type": "counter" },
+            { "key": "total_schedules", "title": "备份计划", "type": "counter" }
+        ]
     },
     "settings_schema": {
         "type": "object",

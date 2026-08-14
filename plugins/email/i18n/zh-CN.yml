@@ -1,3 +1,4 @@
+plugin.name: 邮件服务
 email_management: "邮件管理"
 write_email: "写邮件"
 inbox: "收件箱"

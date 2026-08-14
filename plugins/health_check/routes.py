@@ -1144,6 +1144,13 @@ def api_fix_rollback(audit_id):
         success = False
 
         try:
+            # SQL 标识符白名单：undo 的 table/field 来自 LLM 构造，拼接进 SQL 前必须校验
+            import re as _re
+            if undo.get('table') and not _re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', str(undo['table'])):
+                return jsonify({'success': False, 'error': 'Invalid table identifier'}), 400
+            if undo.get('field') and not _re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', str(undo['field'])):
+                return jsonify({'success': False, 'error': 'Invalid field identifier'}), 400
+
             if action == 'set_log_level' and undo.get('old_level'):
                 conn.execute(
                     "INSERT INTO system_config (key, value) VALUES ('log_level', %s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",

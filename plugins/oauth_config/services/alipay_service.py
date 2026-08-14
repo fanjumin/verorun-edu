@@ -32,7 +32,7 @@ def _get_config(site_domain=None, provider='alipay'):
             with get_db() as conn:
                 row = conn.execute(
                     'SELECT client_key, client_secret FROM oauth_providers '
-                    'WHERE site_domain=? AND provider=? AND is_active=1',
+                    'WHERE site_domain=%s AND provider=%s AND is_active=1',
                     (site_domain, provider)
                 ).fetchone()
             if row:

@@ -18,7 +18,7 @@ def _get_config(site_domain=None, provider='douyin'):
             with get_db() as conn:
                 row = conn.execute(
                     'SELECT client_key, client_secret FROM oauth_providers '
-                    'WHERE site_domain=? AND provider=? AND is_active=1',
+                    'WHERE site_domain=%s AND provider=%s AND is_active=1',
                     (site_domain, provider)
                 ).fetchone()
             if row:
@@ -129,18 +129,18 @@ def save_config_to_db(site_domain, client_key, client_secret, provider='douyin')
     now = datetime.now().isoformat()
     with get_db() as conn:
         existing = conn.execute(
-            'SELECT id FROM oauth_providers WHERE site_domain=? AND provider=?',
+            'SELECT id FROM oauth_providers WHERE site_domain=%s AND provider=%s',
             (site_domain, provider)
         ).fetchone()
         if existing:
             conn.execute(
-                'UPDATE oauth_providers SET client_key=?, client_secret=?, is_active=1, updated_at=? WHERE id=?',
+                'UPDATE oauth_providers SET client_key=%s, client_secret=%s, is_active=1, updated_at=%s WHERE id=%s',
                 (client_key, client_secret, now, existing['id'])
             )
         else:
             conn.execute(
                 'INSERT INTO oauth_providers (site_domain, provider, client_key, client_secret, created_at, updated_at) '
-                'VALUES (?, ?, ?, ?, ?, ?)',
+                'VALUES (%s, %s, %s, %s, %s, %s)',
                 (site_domain, provider, client_key, client_secret, now, now)
             )
         conn.commit()
@@ -153,7 +153,7 @@ def list_configs(provider='douyin'):
     with get_db() as conn:
         rows = conn.execute(
             'SELECT id, site_domain, client_key, is_active, created_at, updated_at '
-            'FROM oauth_providers WHERE provider=? ORDER BY site_domain',
+            'FROM oauth_providers WHERE provider=%s ORDER BY site_domain',
             (provider,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -163,7 +163,7 @@ def delete_config(config_id):
     """删除站点 OAuth 配置"""
     from models import get_db
     with get_db() as conn:
-        conn.execute('DELETE FROM oauth_providers WHERE id=?', (config_id,))
+        conn.execute('DELETE FROM oauth_providers WHERE id=%s', (config_id,))
         conn.commit()
     return True
 
@@ -181,7 +181,7 @@ def get_miniprogram_config(site_domain=None):
             with get_db() as conn:
                 row = conn.execute(
                     'SELECT client_key, client_secret FROM oauth_providers '
-                    'WHERE site_domain=? AND provider=? AND is_active=1',
+                    'WHERE site_domain=%s AND provider=%s AND is_active=1',
                     (site_domain, 'douyin_miniprogram')
                 ).fetchone()
             if row:

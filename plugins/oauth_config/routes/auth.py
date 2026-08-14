@@ -124,7 +124,6 @@ def oauth_login(provider):
 @oauth_bp.route('/oauth/<provider>/callback', methods=['GET'])
 def oauth_callback(provider):
     """OAuth callback — handle code exchange, user lookup, JWT creation."""
-    from plugins.oauth_config.services.jwt_service import create_token
     from plugins.oauth_config.services.oauth_service import oauth, get_douyin_userinfo, is_intl_oauth_provider, get_intl_oauth_provider
 
     main_domain = os.environ.get('DEPLOY_DOMAIN', '')
@@ -146,15 +145,15 @@ def oauth_callback(provider):
         display_name = nickname or f'Telegram user {open_id[-4:]}'
         now = now_iso()
         with get_db() as conn:
-            cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=?', (open_id,))
+            cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=%s', (open_id,))
             user_row = cur.fetchone()
             if user_row:
                 user = dict(user_row)
-                conn.execute('UPDATE public.users SET last_login=?, display_name=? WHERE id=?',
+                conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                              (now, display_name or user.get('display_name', ''), user['id']))
             else:
                 cur = conn.execute(
-                    f'INSERT INTO public.users ({id_field}, display_name, avatar_url, last_login) VALUES (?,?,?,?) RETURNING id',
+                    f'INSERT INTO public.users ({id_field}, display_name, avatar_url, last_login) VALUES (%s,%s,%s,%s) RETURNING id',
                     (open_id, display_name, avatar, now))
                 user_id = cur.fetchone()['id']
                 conn.execute(
@@ -191,15 +190,15 @@ def oauth_callback(provider):
         display_name = nickname or email or f'{provider} user {open_id[-4:]}'
         now = now_iso()
         with get_db() as conn:
-            cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=?', (open_id,))
+            cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=%s', (open_id,))
             user_row = cur.fetchone()
             if user_row:
                 user = dict(user_row)
-                conn.execute('UPDATE public.users SET last_login=?, display_name=? WHERE id=?',
+                conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                              (now, display_name or user.get('display_name', ''), user['id']))
             else:
                 cur = conn.execute(
-                    f'INSERT INTO public.users ({id_field}, display_name, email, avatar_url, last_login) VALUES (?,?,?,?,?) RETURNING id',
+                    f'INSERT INTO public.users ({id_field}, display_name, email, avatar_url, last_login) VALUES (%s,%s,%s,%s,%s) RETURNING id',
                     (open_id, display_name, email, avatar, now))
                 user_id = cur.fetchone()['id']
                 conn.execute(
@@ -286,16 +285,16 @@ def oauth_callback(provider):
     # Find or create user
     now = now_iso()
     with get_db() as conn:
-        cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=?', (open_id,))
+        cur = conn.execute(f'SELECT * FROM public.users WHERE {id_field}=%s', (open_id,))
         user_row = cur.fetchone()
         if user_row:
             user = dict(user_row)
-            conn.execute('UPDATE public.users SET last_login=?, display_name=? WHERE id=?',
+            conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                          (now, nickname or user.get('display_name', ''), user['id']))
         else:
             display_name = nickname or f'{provider} User_{open_id[-4:]}'
             cur = conn.execute(
-                f'INSERT INTO public.users ({id_field}, display_name, last_login) VALUES (?,?,?) RETURNING id',
+                f'INSERT INTO public.users ({id_field}, display_name, last_login) VALUES (%s,%s,%s) RETURNING id',
                 (open_id, display_name, now))
             user_id = cur.fetchone()['id']
             conn.execute(
@@ -347,16 +346,16 @@ def wechat_callback():
     access_token = wx.get('access_token', '')
     now = now_iso()
     with get_db() as conn:
-        cur = conn.execute('SELECT * FROM public.users WHERE wechat_openid=?', (openid,))
+        cur = conn.execute('SELECT * FROM public.users WHERE wechat_openid=%s', (openid,))
         user = cur.fetchone()
         if user:
             user = dict(user)
-            conn.execute('UPDATE public.users SET last_login=? WHERE id=?', (now, user['id']))
+            conn.execute('UPDATE public.users SET last_login=%s WHERE id=%s', (now, user['id']))
             if access_token and user.get('wechat_unionid'):
                 try:
                     info = get_user_info(openid, access_token)
                     if 'nickname' in info and info['nickname']:
-                        conn.execute('UPDATE public.users SET wechat_nickname=?, avatar_url=? WHERE id=?',
+                        conn.execute('UPDATE public.users SET wechat_nickname=%s, avatar_url=%s WHERE id=%s',
                                      (info['nickname'], info.get('avatar', ''), user['id']))
                 except:
                     pass
@@ -374,7 +373,7 @@ def wechat_callback():
                 pass
             cur = conn.execute(
                 'INSERT INTO public.users (wechat_openid, wechat_unionid, wechat_nickname, avatar_url, last_login) '
-                'VALUES (?,?,?,?,?) RETURNING id',
+                'VALUES (%s,%s,%s,%s,%s) RETURNING id',
                 (openid, unionid, nickname, avatar, now))
             user_id = cur.fetchone()['id']
             conn.execute(
@@ -438,16 +437,16 @@ def douyin_callback():
     
     now = now_iso()
     with get_db() as conn:
-        cur = conn.execute('SELECT * FROM public.users WHERE douyin_open_id=?', (open_id,))
+        cur = conn.execute('SELECT * FROM public.users WHERE douyin_open_id=%s', (open_id,))
         user = cur.fetchone()
         if user:
             user = dict(user)
-            conn.execute('UPDATE public.users SET last_login=?, douyin_nickname=?, douyin_avatar=? WHERE id=?',
+            conn.execute('UPDATE public.users SET last_login=%s, douyin_nickname=%s, douyin_avatar=%s WHERE id=%s',
                          (now, nickname, avatar, user['id']))
         else:
             cur = conn.execute(
                 'INSERT INTO public.users (douyin_open_id, douyin_nickname, douyin_avatar, display_name, last_login) '
-                'VALUES (?,?,?,?,?) RETURNING id',
+                'VALUES (%s,%s,%s,%s,%s) RETURNING id',
                 (open_id, nickname, avatar, nickname or '', now))
             user_id = cur.fetchone()['id']
             conn.execute(
@@ -483,14 +482,14 @@ def wechat_login():
     openid = wx['openid']
     now = now_iso()
     with get_db() as conn:
-        cur = conn.execute('SELECT * FROM public.users WHERE wechat_openid=?', (openid,))
+        cur = conn.execute('SELECT * FROM public.users WHERE wechat_openid=%s', (openid,))
         user = cur.fetchone()
         if user:
             user = dict(user)
-            conn.execute('UPDATE public.users SET last_login=? WHERE id=?', (now, user['id']))
+            conn.execute('UPDATE public.users SET last_login=%s WHERE id=%s', (now, user['id']))
         else:
             cur = conn.execute(
-                'INSERT INTO public.users (wechat_openid, wechat_unionid, last_login) VALUES (?,?,?) RETURNING id',
+                'INSERT INTO public.users (wechat_openid, wechat_unionid, last_login) VALUES (%s,%s,%s) RETURNING id',
                 (openid, wx.get('unionid', ''), now))
             user_id = cur.fetchone()['id']
             conn.execute(

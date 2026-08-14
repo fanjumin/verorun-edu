@@ -1,3 +1,4 @@
+plugin.name: 系统健康检查
 ' items)': ' items)'
 ' | {n} plugin(s) have errors: {names}': ' | {n} plugin(s) have errors: {names}'
 14 Days: 14 Days

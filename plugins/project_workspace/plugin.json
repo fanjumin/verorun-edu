@@ -2,6 +2,7 @@
   "name": "Project Workspace",
   "name_i18n_key": "plugin.name",
   "identifier": "project_workspace",
+  "python_dependencies": {"required": ["python-docx", "PyMuPDF", "python-pptx"], "optional": {}},
   "version": "1.2.1",
   "description": "AI-powered project workspace with project isolation, document RAG, intelligent search, and research assistant for organizations of all sizes",
   "author": "VeroRun",
@@ -65,7 +66,7 @@
       { "key": "project_workspace", "icon": "briefcase", "label": "Project Workspace", "label_i18n_key": "menu.project_workspace" }
     ]
   },
-  "admin_url": "/admin/project_workspace",
+  "admin_url": "",
   "settings_schema": {
     "type": "object",
     "properties": {

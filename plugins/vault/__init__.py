@@ -101,3 +101,48 @@ class VaultPlugin(BasePlugin):
                 print('[Vault] Daily backup schedule registered (03:00 UTC)')
         except Exception as e:
             print(f'[Vault] Failed to register backup schedule: {e}')
+
+    def get_dashboard_stats(self) -> dict:
+        """Dashboard 聚合统计（读 vault schema，幂等）。"""
+        import psycopg2.extras
+        stats = {'total_backups': 0, 'success_backups': 0, 'total_schedules': 0}
+        try:
+            from .services.utils import get_vault_conn
+            conn = get_vault_conn()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                cur.execute('SELECT COUNT(*) AS c FROM vault_backups')
+                total = cur.fetchone()
+                cur.execute("SELECT COUNT(*) AS c FROM vault_backups WHERE status='success'")
+                done = cur.fetchone()
+                cur.execute('SELECT COUNT(*) AS c FROM vault_schedules')
+                sched = cur.fetchone()
+                stats['total_backups'] = int(total['c']) if total else 0
+                stats['success_backups'] = int(done['c']) if done else 0
+                stats['total_schedules'] = int(sched['c']) if sched else 0
+            finally:
+                cur.close()
+                conn.close()
+        except Exception as e:
+            print('[Vault] get_dashboard_stats failed: %s' % e)
+        return stats
+
+    def on_uninstall(self, registry):
+        """F-010: 卸载清理 — 删除 vault schema（标准 §12.5 卸载零残留）。
+
+        仅删除数据库中的备份元数据表；文件系统备份目录 data/vault 保留。
+        """
+        from plugins._base.db import get_raw_connection
+        try:
+            raw = get_raw_connection()
+            try:
+                cur = raw.cursor()
+                cur.execute('DROP SCHEMA IF EXISTS vault CASCADE')
+                raw.commit()
+                cur.close()
+            finally:
+                raw.close()
+            print('[Vault] vault schema dropped (backup files preserved)')
+        except Exception as e:
+            print('[Vault] on_uninstall cleanup failed: %s' % e)
+        return True

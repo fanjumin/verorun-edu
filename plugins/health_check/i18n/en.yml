@@ -1,3 +1,4 @@
+plugin.name: Health Check
 ' items)': ' items)'
 ' | {n} plugin(s) have errors: {names}': ' | {n} plugin(s) have errors: {names}'
 14 Days: 14 Days

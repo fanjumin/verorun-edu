@@ -147,6 +147,23 @@ class HealthCheckPlugin(BasePlugin):
         _logger.info('Disabled')
         return True
 
+    def on_uninstall(self, registry):
+        """F-010: 卸载清理 — 删除 health schema（标准 §12.5 卸载零残留）。"""
+        from plugins._base.db import get_raw_connection
+        try:
+            raw = get_raw_connection()
+            try:
+                cur = raw.cursor()
+                cur.execute('DROP SCHEMA IF EXISTS health CASCADE')
+                raw.commit()
+                cur.close()
+            finally:
+                raw.close()
+            _logger.info('health schema dropped')
+        except Exception as e:
+            _logger.error('on_uninstall cleanup failed: %s', e)
+        return True
+
 
 # ═══════════════════════════════════════════════════════════════
 # Dashboard data enrichment

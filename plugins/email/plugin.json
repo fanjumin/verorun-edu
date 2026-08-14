@@ -1,6 +1,8 @@
 {
     "name": "Email Service",
+    "name_i18n_key": "plugin.name",
     "identifier": "email",
+    "python_dependencies": {"required": [], "optional": {}},
     "version": "1.2.0",
     "category": "system",
     "tags": ["email", "smtp", "imap", "notification"],
