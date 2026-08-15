@@ -41,7 +41,7 @@ VeroRun is distributed through two repositories — pick the one that matches yo
 | `verorun-pro` | `https://github.com/fanjumin/verorun-pro` (public) | Standard enterprise package, open download. Install by cloning the repo (see below). |
 | `verorun-code` | `https://github.com/fanjumin/verorun-code` (private) | Official site / enterprise customization. Requires SSH access to the private repository. |
 
-`verorun-pro` is generated automatically from `verorun-code` on every version tag by the `sync-to-base` CI workflow. `install.sh` sets the `GIT_REPO` variable per distribution (HTTPS for `verorun-pro`, SSH for `verorun-code`), so `update` always pulls from the correct source.
+`verorun-pro` is generated automatically from `verorun-code` on every version tag by the `sync-to-pro` CI workflow. `install.sh` sets the `GIT_REPO` variable per distribution (HTTPS for `verorun-pro`, SSH for `verorun-code`), so `update` always pulls from the correct source.
 
 ### Official Edition（官方版）
 

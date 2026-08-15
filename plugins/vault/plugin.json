@@ -2,7 +2,7 @@
     "name": "Vault",
     "name_i18n_key": "plugin.name",
     "identifier": "vault",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "description": "Data vault — full/incremental backup, AES-256-GCM encryption, scheduled backups, audit logging, multi-target storage",
     "author": "VeroRun",
     "min_app_version": "0.10.0",

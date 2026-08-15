@@ -3,7 +3,7 @@
   "name_i18n_key": "plugin.name",
   "identifier": "visitor_profile",
   "python_dependencies": {"required": [], "optional": {}},
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "AI-powered visitor behavior profiling engine with LLM Agent semantic extraction, pgvector storage, and dynamic persona injection",
   "author": "VeroRun",
   "min_app_version": "0.10.0",

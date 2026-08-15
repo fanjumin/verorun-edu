@@ -214,12 +214,19 @@ apply_deploy_type() {
         dev)
             # Developer edition: verorun-code over SSH, plugins EXCLUDED (requirement "dev = no plugins").
             # F-10: GIT_REPO env-injectable — a user-provided value (≠ script default) is respected.
-            [ "${GIT_REPO}" = "https://github.com/fanjumin/verorun-pro.git" ] && GIT_REPO="git@github.com:fanjumin/verorun-code.git"
+            # 审计 2026-08-15：短路赋值 `[ ] && assign` 在 set -e 下当 GIT_REPO 非默认值（如离线本地 bare）时
+            # 会因 [ ] 返回非零导致整条语句退出码非零 → set -e 静默退出安装。改写为 if 形式，行为等价但防截断。
+            if [ "${GIT_REPO}" = "https://github.com/fanjumin/verorun-pro.git" ]; then
+                GIT_REPO="git@github.com:fanjumin/verorun-code.git"
+            fi
             ;;
         code)
             # Team full-plugin edition (install-code.sh) + back-compat: existing code-type .env updates.
             # F-10: env-injectable — a user-provided value (≠ script default) is respected.
-            [ "${GIT_REPO}" = "https://github.com/fanjumin/verorun-pro.git" ] && GIT_REPO="git@github.com:fanjumin/verorun-code.git"
+            # 审计 2026-08-15：与 dev 分支同源加固（见上）。
+            if [ "${GIT_REPO}" = "https://github.com/fanjumin/verorun-pro.git" ]; then
+                GIT_REPO="git@github.com:fanjumin/verorun-code.git"
+            fi
             SPARSE_DIRS="${SPARSE_DIRS:-} plugins"
             ;;
         edu)

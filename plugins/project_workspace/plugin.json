@@ -3,7 +3,7 @@
   "name_i18n_key": "plugin.name",
   "identifier": "project_workspace",
   "python_dependencies": {"required": ["python-docx", "PyMuPDF", "python-pptx"], "optional": {}},
-  "version": "1.2.1",
+  "version": "1.3.1",
   "description": "AI-powered project workspace with project isolation, document RAG, intelligent search, and research assistant for organizations of all sizes",
   "author": "VeroRun",
   "min_app_version": "0.10.0",

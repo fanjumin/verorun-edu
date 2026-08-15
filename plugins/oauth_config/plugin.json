@@ -3,7 +3,7 @@
     "name_i18n_key": "plugin.name",
     "identifier": "oauth_config",
     "python_dependencies": {"required": ["authlib"], "optional": {}},
-    "version": "1.1.0",
+    "version": "1.2.0",
     "category": "system",
     "tags": ["oauth", "login", "sso", "douyin", "wechat", "alipay", "google", "github", "facebook", "telegram"],
     "icon": "social_media",

@@ -3,7 +3,7 @@
     "name_i18n_key": "plugin.name",
     "identifier": "health_check",
     "python_dependencies": {"required": ["redis"], "optional": {}},
-    "version": "1.5.0",
+    "version": "1.6.0",
     "description": "System Health Check — Automated health monitoring + alerting + trend analysis",
     "author": "VeroRun",
     "min_app_version": "0.40.0",
