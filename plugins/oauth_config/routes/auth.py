@@ -149,6 +149,9 @@ def oauth_callback(provider):
             user_row = cur.fetchone()
             if user_row:
                 user = dict(user_row)
+                # VR-AUTH-007：冻结账号（active=0）禁止登录
+                if user.get('active', 1) != 1:
+                    return flask_redirect(f'https://{domain}/login?error=' + urllib.parse.quote(_('Account is disabled')))
                 conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                              (now, display_name or user.get('display_name', ''), user['id']))
             else:
@@ -194,6 +197,9 @@ def oauth_callback(provider):
             user_row = cur.fetchone()
             if user_row:
                 user = dict(user_row)
+                # VR-AUTH-007：冻结账号（active=0）禁止登录
+                if user.get('active', 1) != 1:
+                    return flask_redirect(f'https://{domain}/login?error=' + urllib.parse.quote(_('Account is disabled')))
                 conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                              (now, display_name or user.get('display_name', ''), user['id']))
             else:
@@ -289,6 +295,9 @@ def oauth_callback(provider):
         user_row = cur.fetchone()
         if user_row:
             user = dict(user_row)
+            # VR-AUTH-007：冻结账号（active=0）禁止登录
+            if user.get('active', 1) != 1:
+                return flask_redirect(f'https://{domain}/login?error=' + urllib.parse.quote(_('Account is disabled')))
             conn.execute('UPDATE public.users SET last_login=%s, display_name=%s WHERE id=%s',
                          (now, nickname or user.get('display_name', ''), user['id']))
         else:
@@ -350,6 +359,9 @@ def wechat_callback():
         user = cur.fetchone()
         if user:
             user = dict(user)
+            # VR-AUTH-007：冻结账号（active=0）禁止登录
+            if user.get('active', 1) != 1:
+                return flask_redirect(f'https://{domain}/wechat-login?error=' + urllib.parse.quote(_('Account is disabled')))
             conn.execute('UPDATE public.users SET last_login=%s WHERE id=%s', (now, user['id']))
             if access_token and user.get('wechat_unionid'):
                 try:
@@ -441,6 +453,9 @@ def douyin_callback():
         user = cur.fetchone()
         if user:
             user = dict(user)
+            # VR-AUTH-007：冻结账号（active=0）禁止登录
+            if user.get('active', 1) != 1:
+                return flask_redirect(f'https://{domain}/douyin-login?error=' + urllib.parse.quote(_('Account is disabled')))
             conn.execute('UPDATE public.users SET last_login=%s, douyin_nickname=%s, douyin_avatar=%s WHERE id=%s',
                          (now, nickname, avatar, user['id']))
         else:
@@ -486,6 +501,9 @@ def wechat_login():
         user = cur.fetchone()
         if user:
             user = dict(user)
+            # VR-AUTH-007：冻结账号（active=0）禁止登录
+            if user.get('active', 1) != 1:
+                return api_err(_('Account is disabled'), 403)
             conn.execute('UPDATE public.users SET last_login=%s WHERE id=%s', (now, user['id']))
         else:
             cur = conn.execute(

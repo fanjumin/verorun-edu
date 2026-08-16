@@ -37,6 +37,8 @@ plugin.name: Vault
 "Backup deleted": "Backup deleted"
 "Health check failed": "Health check failed"
 "Back to Dashboard": "Back to Dashboard"
+"Dashboard": "Dashboard"
+"Audit": "Audit"
 "Restore Backup": "Restore Backup"
 "Select Backup": "Select Backup"
 "Choose Scope": "Choose Scope"

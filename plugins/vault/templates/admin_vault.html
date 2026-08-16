@@ -3,10 +3,8 @@
 window.l_vault = function () {
   document.getElementById('pt').textContent = {{ _('Vault') | tojson }};
   var mc = document.getElementById('mc');
-  mc.innerHTML = '<div class="lo"><div class="s"></div>{{ _('Loading...') }}...</div>';
-  vaultRenderDashboard();
-  vaultLoadHealth();
-  vaultLoadBackups();
+  // iframe 内嵌完整 Vault UI（vault.html + vault.js + 5 子页面），同源加载自动携带 sso_token Cookie
+  mc.innerHTML = '<iframe src="/admin/vault/" style="width:100%;height:calc(100vh - 70px);border:none;background:#050508"></iframe>';
 };
 
 var vaultEchartsOk = typeof echarts !== 'undefined';
@@ -124,12 +122,17 @@ function vaultFilterBackups() {
   }));
 }
 
+function vaultCsrfToken() {
+  var m = document.cookie.match(/(^|;\s*)csrf_token=([^;]*)/);
+  return m ? decodeURIComponent(m[2]) : '';
+}
+
 function vaultCreateBackup() {
   var btn = document.getElementById('btnBackupNow');
   btn.disabled = true; btn.textContent = '{{ _('Creating...') }}';
   fetch('/admin/vault/api/backup/create', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + T }
+    headers: { 'Authorization': 'Bearer ' + T, 'X-CSRF-Token': vaultCsrfToken() }
   }).then(function (r) { return r.json(); }).then(function (d) {
     if (d.success || d.label) {
       showToast('{{ _('Backup created') }}: ' + (d.label || 'OK'), 'success');
@@ -153,7 +156,7 @@ function vaultDelete(label) {
   if (!confirm('{{ _('Delete this backup?') }} ' + label + '?')) return;
   fetch('/admin/vault/api/backup/delete/' + encodeURIComponent(label), {
     method: 'DELETE',
-    headers: { 'Authorization': 'Bearer ' + T }
+    headers: { 'Authorization': 'Bearer ' + T, 'X-CSRF-Token': vaultCsrfToken() }
   }).then(function (r) { return r.json(); }).then(function (d) {
     if (d.success || d.message) {
       showToast('{{ _('Backup deleted') }}', 'success');
@@ -171,7 +174,7 @@ function vaultCleanup() {
   if (!confirm('{{ _('Remove expired backups based on retention policy?') }}')) return;
   fetch('/admin/vault/api/cleanup', {
     method: 'DELETE',
-    headers: { 'Authorization': 'Bearer ' + T }
+    headers: { 'Authorization': 'Bearer ' + T, 'X-CSRF-Token': vaultCsrfToken() }
   }).then(function (r) { return r.json(); }).then(function (d) {
     showToast(d.message || '{{ _('Cleanup completed') }}', 'success');
     vaultLoadBackups();
@@ -183,7 +186,7 @@ function vaultDrill() {
   mc.innerHTML = '<div class="lo"><div class="s"></div>{{ _('Running Drill...') }}</div>';
   fetch('/admin/vault/api/restore/drill', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + T }
+    headers: { 'Authorization': 'Bearer ' + T, 'X-CSRF-Token': vaultCsrfToken() }
   }).then(function (r) { return r.json(); }).then(function (d) {
     showToast(d.message || (d.success ? '{{ _('Drill passed') }}' : '{{ _('Drill failed') }}'), d.success ? 'success' : 'error');
     vaultRenderDashboard();

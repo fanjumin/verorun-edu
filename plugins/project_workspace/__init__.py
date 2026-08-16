@@ -261,8 +261,14 @@ class ProjectWorkspacePlugin(BasePlugin):
             conn.execute("CREATE SCHEMA IF NOT EXISTS %s" % SCHEMA)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS schema_version ("
-                " version    varchar(16) PRIMARY KEY,"
+                " version    varchar(64) PRIMARY KEY,"
                 " applied_at timestamptz NOT NULL DEFAULT now())"
+            )
+            # VR-PLG-003：版本键为迁移文件名（如 v1.0.0_to_v1.1.0.sql 共 20 字符），
+            # varchar(16) 会导致 INSERT 超长失败并使整个迁移事务回滚（表全部消失，
+            # 运行时「relation projects does not exist」）。幂等加宽兼容旧库。
+            conn.execute(
+                "ALTER TABLE IF EXISTS schema_version ALTER COLUMN version TYPE varchar(64)"
             )
             conn.execute("SET search_path TO %s, public" % SCHEMA)
             migrations_dir = os.path.join(os.path.dirname(__file__), 'migrations')

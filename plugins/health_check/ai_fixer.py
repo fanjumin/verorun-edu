@@ -135,10 +135,38 @@ def _call_llm(system_prompt: str, user_prompt: str,
                 {'role': 'user', 'content': user_prompt},
             ],
             temperature=temperature,
-            max_tokens=4096,
+            max_tokens=8192,
             module='health_check',
         )
         return resp
+    except ValueError as e:
+        # 模型解析失败（cleaner_ai_model 指向已删除的模型 / AI Hub 无活跃模型）。
+        # 用 AI Hub 的活跃模型（provider_model_id 方式）重试一次，避免静默返回空结果。
+        _logger.warning("[AIFixer] model resolution failed, retrying with AI Hub active model: %s", e)
+        try:
+            from models.database import get_active_model
+            pm_id, pm_model, pm_base_url = get_active_model(engine_config.get('provider', 'deepseek'))
+            if pm_id and pm_model:
+                retry_engine = UnifiedLLM({
+                    'provider': engine_config.get('provider', 'deepseek'),
+                    'model_name': pm_model,
+                    'base_url': pm_base_url or engine_config.get('base_url', ''),
+                    'provider_model_id': pm_id,
+                    'system_prompt': '',
+                })
+                return retry_engine.chat(
+                    messages=[
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': user_prompt},
+                    ],
+                    provider_model_id=pm_id,
+                    temperature=temperature,
+                    max_tokens=8192,
+                    module='health_check',
+                )
+        except Exception as e2:
+            _logger.error("[AIFixer] retry with AI Hub active model failed: %s", e2)
+        return None
     except Exception as e:
         _logger.error("LLM call via UnifiedLLM failed: %s", e)
         return None
@@ -245,20 +273,37 @@ class AIFixer:
 
         response_text = _call_llm(FIXER_SYSTEM_PROMPT, user_prompt)
         if not response_text:
-            return {'summary': 'LLM analysis failed', 'items': []}
+            return {
+                'summary': 'LLM analysis failed',
+                'items': [],
+                '_error': 'LLM call failed or blocked (AI budget / model resolution / API error). Check plugin logs for details.',
+            }
+
+        import re
+        # 剥离 markdown 代码围栏（```json ... ```），避免 json.loads 直接失败
+        fence = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+        if fence:
+            response_text = fence.group(1)
 
         try:
             plan = json.loads(response_text)
         except json.JSONDecodeError:
-            import re
             match = re.search(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', response_text, re.DOTALL)
             if match:
                 try:
                     plan = json.loads(match.group())
                 except json.JSONDecodeError:
-                    plan = {'summary': 'Failed to parse LLM response', 'items': []}
+                    plan = {
+                        'summary': 'Failed to parse LLM response',
+                        'items': [],
+                        '_error': 'LLM response was not valid JSON (may have been truncated by max_tokens).',
+                    }
             else:
-                plan = {'summary': 'Failed to parse LLM response', 'items': []}
+                plan = {
+                    'summary': 'Failed to parse LLM response',
+                    'items': [],
+                    '_error': 'LLM response was not valid JSON (may have been truncated by max_tokens).',
+                }
 
         # Normalize: if LLM returned a flat action object (no 'items' array),
         # wrap it into items

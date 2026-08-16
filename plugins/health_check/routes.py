@@ -977,7 +977,9 @@ def api_ai_analyze():
     return jsonify({
         'success': True,
         'data': {
+            'ok': not plan.get('_error'),
             'summary': plan.get('summary', ''),
+            'error': plan.get('_error', ''),
             'items': plan.get('items', []),
             'raw_plan': plan,
         }

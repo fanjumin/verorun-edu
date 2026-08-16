@@ -193,6 +193,8 @@ AppKey and AppSecret cannot be empty: AppKey and AppSecret cannot be empty
 AppKey not configured: AppKey not configured
 Approval: Approval
 Approval Not Approved: Approval Not Approved
+Approval Note (optional): Approval Note (optional)
+Approve: Approve
 Approved: Approved
 Article: Article
 Article Management: Article Management
@@ -1066,6 +1068,7 @@ Registered Capital: Registered Capital
 Registration Time: Registration Time
 Reject: Reject
 Rejected: Rejected
+Rejection Reason: Rejection Reason
 Removed from favorites: Removed from favorites
 Renewal: Renewal
 Renewal Exclusive: Renewal Exclusive

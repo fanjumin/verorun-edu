@@ -6,6 +6,7 @@ Supports preview mode (dry_run) to inspect backup contents before executing rest
 """
 
 import os
+import re
 import tarfile
 import tempfile
 import subprocess
@@ -15,6 +16,29 @@ from typing import Dict, Optional
 from .utils import get_pg_env, BASE_DIR
 
 BACKUP_DIR = os.path.join(BASE_DIR, 'data', 'vault')
+
+# VR-SEC-003: 备份标签白名单，仅允许安全字符，杜绝路径拼接注入
+_LABEL_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
+
+
+def _validate_tar_members(tar: tarfile.TarFile, dest_dir: str):
+    """VR-SEC-003: 校验 tar 成员，拒绝绝对路径/`..` 逃逸，返回安全成员列表。"""
+    dest_root = os.path.normpath(dest_dir)
+    members = []
+    for m in tar.getmembers():
+        # 拒绝硬链接/符号链接指向外部（防 link 逃逸）
+        if m.issym() or m.islnk():
+            link_target = os.path.normpath(
+                os.path.join(os.path.dirname(m.name), m.linkname)
+                if not m.linkname.startswith('/') else m.linkname[1:]
+            )
+            if not link_target.startswith(dest_root) or os.path.isabs(m.linkname):
+                raise ValueError(f'Unsafe link in archive: {m.name} -> {m.linkname}')
+        norm = os.path.normpath(m.name)
+        if os.path.isabs(norm) or norm == '..' or norm.startswith('..' + os.sep):
+            raise ValueError(f'Unsafe path in archive: {m.name}')
+        members.append(m)
+    return members
 
 
 class RestoreEngine:
@@ -36,6 +60,9 @@ class RestoreEngine:
         Returns:
             {'success': bool, 'steps': [...], 'error': str|None}
         """
+        if not _LABEL_RE.match(backup_label):
+            return {'success': False, 'error': f'Invalid backup label: {backup_label}'}
+
         archive_path = os.path.join(BACKUP_DIR, f'{backup_label}.tar.gz')
         if not os.path.isfile(archive_path):
             return {'success': False, 'error': f'Backup not found: {backup_label}'}
@@ -43,7 +70,8 @@ class RestoreEngine:
         work_dir = tempfile.mkdtemp(prefix='vault_restore_')
         try:
             with tarfile.open(archive_path, 'r:gz') as tar:
-                tar.extractall(work_dir)
+                members = _validate_tar_members(tar, work_dir)
+                tar.extractall(work_dir, members=members)
 
             content_dir = os.path.join(work_dir, backup_label)
             steps = []
@@ -137,7 +165,7 @@ class RestoreEngine:
         plugins = scope.get('plugins') if scope else None
         try:
             with tarfile.open(tar_file, 'r:gz') as tar:
-                members = tar.getmembers()
+                members = _validate_tar_members(tar, BASE_DIR)
                 if plugins:
                     members = [m for m in members
                                if any(m.name.startswith(f'plugins/{p}/') for p in plugins)]

@@ -271,8 +271,8 @@
 
   function runDrill() {
     vaultConfirm('Restore Drill', 'Run a restore drill? This will restore the latest backup to a sandbox database, verify it, and clean up. No production data will be affected.', 'Run Drill', function () {
-      var btn = document.getElementById('btnDrill');
-      if (btn) { btn.disabled = true; btn.textContent = 'Drilling...'; }
+      var btns = document.querySelectorAll('#btnDrill, .js-drill');
+      btns.forEach(function (b) { b.disabled = true; b.textContent = 'Drilling...'; });
 
       api('/admin/vault/api/restore/drill', {
         method: 'POST',
@@ -285,7 +285,7 @@
           toast('Drill failed: ' + (data.report || data.error || 'verification failed'), 'error');
         }
       }).catch(function (e) { toast('Drill error: ' + e.message, 'error'); })
-        .finally(function () { if (btn) { btn.disabled = false; btn.textContent = 'Drill'; } });
+        .finally(function () { btns.forEach(function (b) { b.disabled = false; b.textContent = 'Drill'; }); });
     });
   }
 
@@ -948,6 +948,23 @@
   }
 
   // ══════════════════════════════════════════════════════════════
+  // SHARED NAV
+  // ══════════════════════════════════════════════════════════════
+
+  function initVaultNav() {
+    // 高亮当前页面对应的导航项
+    document.querySelectorAll('.vault-nav-link[data-vault-page]').forEach(function (el) {
+      if (el.getAttribute('data-vault-page') === pageId) {
+        el.classList.add('active');
+      }
+    });
+    // 导航中的 Drill 按钮在任意页面均可触发
+    document.querySelectorAll('.js-drill').forEach(function (btn) {
+      btn.addEventListener('click', runDrill);
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // GLOBAL EXPOSURE
   // ══════════════════════════════════════════════════════════════
 
@@ -959,12 +976,14 @@
   window.vaultDeleteSchedule = window.vaultDeleteSchedule;
   window.vaultTestStorage = window.vaultTestStorage;
   window.vaultDeleteStorage = window.vaultDeleteStorage;
+  window.runDrill = runDrill;
 
   // ══════════════════════════════════════════════════════════════
   // INIT — Route to page-specific init
   // ══════════════════════════════════════════════════════════════
 
   document.addEventListener('DOMContentLoaded', function () {
+    initVaultNav();
     if (pageId === 'dashboard') {
       loadHealth();
       loadBackups();
@@ -980,8 +999,6 @@
       }
       var btn = document.getElementById('btnBackupNow');
       if (btn) btn.addEventListener('click', function () { createBackup('full'); });
-      var drillBtn = document.getElementById('btnDrill');
-      if (drillBtn) drillBtn.addEventListener('click', runDrill);
       var cleanupBtn = document.getElementById('btnCleanup');
       if (cleanupBtn) cleanupBtn.addEventListener('click', cleanupBackups);
     } else if (pageId === 'restore') {

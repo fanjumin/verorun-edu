@@ -227,7 +227,7 @@ if __name__ == '__main__':
     # 测试
     tests = [
         ('admin', False, '保留名'),
-        ('guxiao', True, _('Normal')),
+        ('***REMOVED***', True, _('Normal')),
         ('法轮功学员', False, '一级敏感'),
         ('约炮神器', False, '二级敏感'),
         ('大傻逼', False, '三级敏感'),

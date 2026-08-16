@@ -40,8 +40,9 @@ def _assert_public_host(url):
 
 def _get_channel_config(channel):
     """从 IM Gateway 独立库读取频道配置（已启用）"""
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'plugins', 'im_gateway'))
-    from models import get_im_db
+    # 绝对包路径导入，避免 `from models import ...` 因 sys.modules 缓存
+    # 解析到 auth-center/models（其无 get_im_db）而 ImportError。
+    from plugins.im_gateway.models import get_im_db
     conn = get_im_db()
     row = conn.execute(
         "SELECT config_json FROM channel_configs WHERE channel=%s AND is_enabled=1 LIMIT 1",

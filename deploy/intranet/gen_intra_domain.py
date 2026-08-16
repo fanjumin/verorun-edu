@@ -13,7 +13,7 @@ gen_intra_domain.py — VeroRun 企业内网域名生成/校验工具
 用法：
   python3 gen_intra_domain.py office            # 自建后缀（自动补全为 verorun.office）
   python3 gen_intra_domain.py mycorp.office     # 自建完整域名
-  python3 gen_intra_domain.py --prefix guxiao office
+  python3 gen_intra_domain.py --prefix ***REMOVED*** office
   python3 gen_intra_domain.py --random          # 自动生成一个可用建议
   python3 gen_intra_domain.py --check-dns verorun.office   # 附加公网 DNS 探测（仅警告）
   python3 gen_intra_domain.py --list-forbidden  # 查看排除名单

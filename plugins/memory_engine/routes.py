@@ -6,6 +6,7 @@ Includes: memories CRUD, reflexion logs, prompt metrics, and
 Evolution Ring APIs (C.3): phases, rounds, graph.
 """
 
+from functools import wraps
 from flask import Blueprint, jsonify, request
 
 from .models import get_memory_engine_db, EVOLUTION_PHASES
@@ -13,9 +14,39 @@ from .models import get_memory_engine_db, EVOLUTION_PHASES
 bp = Blueprint('memory_engine_admin', __name__, url_prefix='/admin/memory')
 
 
+# ── Auth guard ──────────────────────────────────────────────────
+
+def _require_admin():
+    """Require an authenticated admin (JWT Bearer header or sso/tm cookie)."""
+    from services.jwt_service import validate_token
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else auth
+    if not token:
+        token = request.cookies.get('sso_token') or request.cookies.get('tm_token')
+    try:
+        payload = validate_token(token) if token else None
+    except Exception:
+        payload = None
+    if not payload or not payload.get('is_admin'):
+        return None, jsonify({'ok': False, 'error': 'Requires management permissions'}), 401
+    return payload, None
+
+
+def admin_required(fn):
+    """Reject anonymous / non-admin callers."""
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        _payload, err, status = _require_admin()
+        if err:
+            return err, status
+        return fn(*a, **kw)
+    return wrapper
+
+
 # ── Memories ─────────────────────────────────────────────────────
 
 @bp.route('/memories')
+@admin_required
 def list_memories():
     """List/search memories with owner + type filters (admin page data)."""
     q = request.args.get('q', '')
@@ -44,6 +75,7 @@ def list_memories():
 
 
 @bp.route('/memories/<mem_id>', methods=['DELETE'])
+@admin_required
 def delete_memory(mem_id):
     """Soft-delete a memory (admin action)."""
     conn = get_memory_engine_db()
@@ -60,6 +92,7 @@ def delete_memory(mem_id):
 # ── Reflexions ───────────────────────────────────────────────────
 
 @bp.route('/reflexions')
+@admin_required
 def list_reflexions():
     """Recent reflexion logs."""
     conn = get_memory_engine_db()
@@ -77,6 +110,7 @@ def list_reflexions():
 # ── Prompt Metrics ────────────────────────────────────────────────
 
 @bp.route('/prompts')
+@admin_required
 def list_prompt_metrics():
     """Prompt version metrics + evolution suggestions."""
     conn = get_memory_engine_db()
@@ -94,6 +128,7 @@ def list_prompt_metrics():
 # ── Evolution Ring (Appendix C.3) ─────────────────────────────────
 
 @bp.route('/phases')
+@admin_required
 def memory_phases():
     """Return the EVOLUTION_PHASES configuration.
     Frontend uses this to dynamically render ring segments.
@@ -102,6 +137,7 @@ def memory_phases():
 
 
 @bp.route('/rounds')
+@admin_required
 def memory_rounds():
     """Round timeline (player data source).
     ?agent_id=  optional filter.
@@ -131,6 +167,7 @@ def memory_rounds():
 
 
 @bp.route('/graph')
+@admin_required
 def memory_graph():
     """Evolution Ring payload: nodes + links for one round.
 

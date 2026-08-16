@@ -553,7 +553,17 @@ function aiAnalyze(itemId) {
   .then(function(d){
     if (d.success && d.data) {
       var plan = d.data.raw_plan || d.data;
-      var itemsJson = JSON.stringify(plan.items || [], null, 2);
+      // LLM 分析失败：显示具体原因，而不是裸显 []
+      if (d.data.ok === false || plan._error) {
+        el.innerHTML = '<span style="color:var(--red)">⚠️ ' + esc(d.data.error || plan._error || plan.summary || 'Analysis failed') + '</span>';
+        return;
+      }
+      // 分析成功但无修复项：显示 summary 说明
+      if (!plan.items || plan.items.length === 0) {
+        el.innerHTML = '<span style="color:var(--dim)">' + esc(plan.summary || 'No actionable items found') + '</span>';
+        return;
+      }
+      var itemsJson = JSON.stringify(plan.items, null, 2);
       el.innerHTML = '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:12px;max-height:200px;overflow:auto">'+esc(itemsJson)+'</pre>';
       // If there are fix items, show execute button
       if (plan.items && plan.items.length > 0) {

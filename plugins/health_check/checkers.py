@@ -280,7 +280,7 @@ class BaseHealthCheck(ABC):
     # ── Metadata accessors (overridable) ──
 
     def get_name(self) -> str:
-        return _(self.name)
+        return _t(self.name)
 
     def get_category(self) -> str:
         return self.category
@@ -289,7 +289,7 @@ class BaseHealthCheck(ABC):
         return self.severity
 
     def get_description(self) -> str:
-        return _(self.description)
+        return _t(self.description)
 
     def get_sort_order(self) -> int:
         return self.sort_order
@@ -1210,9 +1210,19 @@ class MediaIntegrityChecker(BaseHealthCheck):
             if 'media_files' in tables_found:
                 # 只检查未被软删除的记录（deleted_at IS NULL）
                 # 缺失文件通过 AI Fix 标记 deleted_at 后不再重复报告
+                # 兼容旧 schema：deleted_at 列可能不存在，先探测再决定是否过滤
+                try:
+                    _cols = [r['column_name'] for r in conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='public' AND table_name='media_files'"
+                    ).fetchall()]
+                    _has_deleted_at = 'deleted_at' in _cols
+                except Exception:
+                    _has_deleted_at = False
+                _filter_sql = ' WHERE deleted_at IS NULL' if _has_deleted_at else ''
                 rows = conn.execute(
-                    "SELECT id, file_path, thumb_path, original_name FROM media_files "
-                    "WHERE deleted_at IS NULL"
+                    "SELECT id, file_path, thumb_path, original_name FROM media_files"
+                    + _filter_sql
                 ).fetchall()
                 for field in ('file_path', 'thumb_path'):
                     missing_all.extend(self._check_paths(
@@ -1576,80 +1586,76 @@ class InternalLinkChecker(BaseHealthCheck):
 
         try:
             from models import get_db as main_db
-            conn = main_db()
         except ImportError:
             return CheckResult('warning', 0, 'Main DB not available, skip internal link check')
 
         try:
-            # Collect URLs
-            all_urls = self._collect_urls(conn)
-            if not all_urls:
+            with main_db() as conn:
+                # Collect URLs
+                all_urls = self._collect_urls(conn)
+                if not all_urls:
+                    elapsed = int((time.time() - start) * 1000)
+                    return CheckResult('passed', elapsed, 'No links to check', {'total_urls': 0})
+
+                # Check (limit to max_urls)
+                urls_to_check = all_urls[:max_urls]
+                checked = []
+                for u in urls_to_check:
+                    try:
+                        result = self._check_url(u, timeout)
+                        checked.append(result)
+                    except Exception as e:
+                        checked.append({**u, 'status': 'error', 'message': str(e)})
+
+                # Summary stats
+                total = len(checked)
+                healthy = sum(1 for c in checked if c['status'] == 'healthy')
+                broken = sum(1 for c in checked if c['status'] == 'broken')
+                redirects = sum(1 for c in checked if c['status'] == 'redirect')
+                internal_paths = sum(1 for c in checked if c['status'] == 'internal_path')
+                errors = sum(1 for c in checked if c['status'] in ('server_error', 'unknown', 'error'))
+
+                # Build fix suggestions
+                fix_suggestions = self._build_fix_suggestions(checked)
+
                 elapsed = int((time.time() - start) * 1000)
-                return CheckResult('passed', elapsed, 'No links to check', {'total_urls': 0})
+                detail = {
+                    'total_urls': len(all_urls),
+                    'checked': total,
+                    'healthy': healthy,
+                    'broken': broken,
+                    'redirects': redirects,
+                    'internal_paths': internal_paths,
+                    'errors': errors,
+                    'items': [{
+                        'table': c.get('table', ''),
+                        'record_id': c.get('record_id', 0),
+                        'field': c.get('field', ''),
+                        'url': c.get('url', ''),
+                        'status': c.get('status', ''),
+                        'http_status': c.get('http_status'),
+                        'message': c.get('message', ''),
+                        'final_url': c.get('final_url'),
+                        'title': c.get('title', ''),
+                        'source_type': c.get('source_type', ''),
+                    } for c in checked],
+                    'fix_suggestions': [s.to_dict() for s in fix_suggestions],
+                }
 
-            # Check (limit to max_urls)
-            urls_to_check = all_urls[:max_urls]
-            checked = []
-            for u in urls_to_check:
-                try:
-                    result = self._check_url(u, timeout)
-                    checked.append(result)
-                except Exception as e:
-                    checked.append({**u, 'status': 'error', 'message': str(e)})
+                if broken == 0 and errors == 0 and redirects == 0:
+                    return CheckResult('passed', elapsed, f'All {total} links healthy', detail)
 
-            # Summary stats
-            total = len(checked)
-            healthy = sum(1 for c in checked if c['status'] == 'healthy')
-            broken = sum(1 for c in checked if c['status'] == 'broken')
-            redirects = sum(1 for c in checked if c['status'] == 'redirect')
-            internal_paths = sum(1 for c in checked if c['status'] == 'internal_path')
-            errors = sum(1 for c in checked if c['status'] in ('server_error', 'unknown', 'error'))
-
-            # Build fix suggestions
-            fix_suggestions = self._build_fix_suggestions(checked)
-
-            elapsed = int((time.time() - start) * 1000)
-            detail = {
-                'total_urls': len(all_urls),
-                'checked': total,
-                'healthy': healthy,
-                'broken': broken,
-                'redirects': redirects,
-                'internal_paths': internal_paths,
-                'errors': errors,
-                'items': [{
-                    'table': c.get('table', ''),
-                    'record_id': c.get('record_id', 0),
-                    'field': c.get('field', ''),
-                    'url': c.get('url', ''),
-                    'status': c.get('status', ''),
-                    'http_status': c.get('http_status'),
-                    'message': c.get('message', ''),
-                    'final_url': c.get('final_url'),
-                    'title': c.get('title', ''),
-                    'source_type': c.get('source_type', ''),
-                } for c in checked],
-                'fix_suggestions': [s.to_dict() for s in fix_suggestions],
-            }
-
-            if broken == 0 and errors == 0 and redirects == 0:
-                return CheckResult('passed', elapsed, f'All {total} links healthy', detail)
-
-            parts = []
-            if broken:
-                parts.append(f'{broken} broken')
-            if errors:
-                parts.append(f'{errors} errors')
-            if redirects:
-                parts.append(f'{redirects} redirects')
-            msg = ', '.join(parts) + f' of {total} links'
-            return CheckResult('warning', elapsed, msg, detail)
-
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+                parts = []
+                if broken:
+                    parts.append(f'{broken} broken')
+                if errors:
+                    parts.append(f'{errors} errors')
+                if redirects:
+                    parts.append(f'{redirects} redirects')
+                msg = ', '.join(parts) + f' of {total} links'
+                return CheckResult('warning', elapsed, msg, detail)
+        except Exception as e:
+            return CheckResult('warning', 0, f'Internal link check failed: {e}')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1752,7 +1758,7 @@ class AIGatewayHealthCheck(BaseHealthCheck):
                     (today,)
                 ).fetchone()
                 if usage:
-                    detail['tokens_today'] = usage['total']
+                    detail['tokens_today'] = float(usage['total'])
         except Exception:
             pass
 

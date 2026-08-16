@@ -37,6 +37,8 @@ plugin.name: 数据保险库
 "Backup deleted": "备份已删除"
 "Health check failed": "健康检查失败"
 "Back to Dashboard": "返回仪表盘"
+"Dashboard": "仪表盘"
+"Audit": "审计"
 "Restore Backup": "恢复备份"
 "Select Backup": "选择备份"
 "Choose Scope": "选择范围"

@@ -11,6 +11,8 @@
 
 <div class="vault-dashboard">
 
+    {% include 'vault_nav.html' %}
+
     <!-- Status Bar -->
     <div class="vault-status-bar">
         <div class="status-card">
@@ -36,11 +38,6 @@
         <button class="btn btn-primary" id="btnBackupNow">
             <span class="btn-icon">+</span> Backup Now
         </button>
-        <a href="/admin/vault/restore" class="btn btn-outline">Restore</a>
-        <a href="/admin/vault/schedules" class="btn btn-outline">Schedules</a>
-        <a href="/admin/vault/storage" class="btn btn-outline">Storage</a>
-        <a href="/admin/vault/settings" class="btn btn-outline">Settings</a>
-        <button class="btn btn-outline btn-sm" id="btnDrill" title="Test restore to verify backup integrity">Drill</button>
     </div>
 
     <!-- Charts Row -->

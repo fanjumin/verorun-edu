@@ -54,6 +54,46 @@
   margin-bottom: 24px;
 }
 
+/* ── Shared Navigation ── */
+.vault-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-bottom: 24px;
+}
+
+.vault-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font-en);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+
+.vault-nav-link:hover {
+  background: rgba(99,102,241,0.08);
+  color: var(--text);
+}
+
+.vault-nav-link.active {
+  background: rgba(99,102,241,0.12);
+  color: var(--indigo);
+}
+
 /* ── Buttons (scope to vault-dashboard to avoid system conflicts) ── */
 .vault-dashboard .btn {
   display: inline-flex;

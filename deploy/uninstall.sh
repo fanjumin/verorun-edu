@@ -76,7 +76,7 @@ done_step "Nginx config removed"
 
 # 3. Directories (reverse of mkdir; do NOT touch the login user)
 step "User & files"
-# 审计 M8 修复：APP_USER is the SSH login user (e.g. guxiao); the install script never creates a system user,
+# 审计 M8 修复：APP_USER is the SSH login user (e.g. ***REMOVED***); the install script never creates a system user,
 # so the former userdel would wrongly delete the login account and lock out SSH. Uninstall only cleans directories created by the install script.
 rm -rf "${LOG_DIR}" 2>/dev/null || true
 rm -rf "${APP_HOME}" 2>/dev/null || true

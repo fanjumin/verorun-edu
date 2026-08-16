@@ -193,6 +193,8 @@ AppKey and AppSecret cannot be empty: AppKey 和 AppSecret 不能为空
 AppKey not configured: 未配置AppKey
 Approval: 审批
 Approval Not Approved: 审批未通过
+Approval Note (optional): 审批备注（可选）
+Approve: 通过
 Approved: 通过
 Article: 文章
 Article Management: 文章管理
@@ -1066,6 +1068,7 @@ Registered Capital: 注册资本/Registered Capital
 Registration Time: 注册时间
 Reject: 驳回
 Rejected: 已拒收
+Rejection Reason: 拒绝原因
 Removed from favorites: 已取消收藏
 Renewal: 续费
 Renewal Exclusive: 续费专享
