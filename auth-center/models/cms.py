@@ -159,30 +159,23 @@ def get_page_blocks(page: str):
 
 
 def upsert_block(data: dict):
-    """Insert or update a content block.
-
-    编辑采用字段级合并（PATCH 语义）：仅更新请求中显式提供的字段，
-    避免 PUT 增量提交时未传字段被重置为默认值（VR-CMS-001）。
-    """
+    """Insert or update a content block."""
     with get_db() as conn:
         if data.get('id'):
-            # 动态 UPDATE：仅更新请求中显式提供的字段，避免全量覆盖
-            updates = []
-            params = []
-            for f in ('page', 'section', 'block_type', 'position',
-                      'title', 'subtitle', 'content', 'image_url',
-                      'link_url', 'link_text', 'icon', 'extra_json',
-                      'is_published'):
-                if f not in data:
-                    continue
-                updates.append(f'{f}=%s')
-                params.append(data[f])
-            updates.append('updated_at=NOW()')
-            params.append(data['id'])
-            conn.execute(
-                f'UPDATE cms_blocks SET {", ".join(updates)} WHERE id=%s',
-                params
-            )
+            conn.execute("""
+                UPDATE cms_blocks SET
+                    page=%s, section=%s, block_type=%s, position=%s,
+                    title=%s, subtitle=%s, content=%s, image_url=%s,
+                    link_url=%s, link_text=%s, icon=%s, extra_json=%s,
+                    is_published=%s, updated_at=NOW()
+                WHERE id=%s
+            """, (
+                data.get('page', ''), data.get('section', ''), data.get('block_type', 'text'),
+                data.get('position', 0), data.get('title', ''), data.get('subtitle', ''),
+                data.get('content', ''), data.get('image_url', ''), data.get('link_url', ''),
+                data.get('link_text', ''), data.get('icon', ''), data.get('extra_json', '{}'),
+                data.get('is_published', 1), data['id']
+            ))
         else:
             cur = conn.execute("""
                 INSERT INTO cms_blocks (page, section, block_type, position, title, subtitle,
