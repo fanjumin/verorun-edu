@@ -1873,10 +1873,8 @@ do_install() {
         git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
         echo -e "${WARN} sparse-checkout failed — keeping full working tree"
     fi
-    # 审计 NEW-H2：only production uniformly removes the three no-domain scripts
-    if [ "${DEPLOY_TYPE}" = "production" ]; then
-        rm -f "${APP_HOME}/deploy/install-local.sh" "${APP_HOME}/deploy/install-code.sh" "${APP_HOME}/deploy/install-dev.sh"
-    fi
+    # No-domain scripts (install-local/code/dev) are kept on disk: deleting
+    # git-tracked files leaves unstaged changes that break `git pull` / update.
     # Clean stale __pycache__ before chown (avoids race-condition failures)
     find "${APP_HOME}" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
     chown -R "${APP_USER}:${APP_USER}" "${APP_HOME}" 2>/dev/null || true
@@ -2094,10 +2092,8 @@ do_update() {
         git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
         echo -e "${WARN} sparse-checkout failed — keeping full working tree"
     fi
-    # 审计 NEW-H2：only production uniformly removes the three no-domain scripts
-    if [ "${DEPLOY_TYPE}" = "production" ]; then
-        rm -f "${APP_HOME}/deploy/install-local.sh" "${APP_HOME}/deploy/install-code.sh" "${APP_HOME}/deploy/install-dev.sh"
-    fi
+    # No-domain scripts (install-local/code/dev) are kept on disk: deleting
+    # git-tracked files leaves unstaged changes that break `git pull` / update.
     local after_commit
     after_commit=$(git log --oneline -1)
     done_step "Code updated: ${before_commit:0:7} -> ${after_commit:0:7}"
