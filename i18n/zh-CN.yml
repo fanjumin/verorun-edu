@@ -1823,6 +1823,7 @@ stub confirm is disabled outside dev: stub 确认仅限开发模式
 'AI Matrix-driven intelligent business platform. Not just building — AI agents run your site.': 'AI Matrix 驱动的智能商业平台，不止是建站 —— AI Agent 替您运营网站。'
 'AI Product Info Processing': 'AI 商品信息处理'
 'AI Site Builder': 'AI 建站工具'
+'Site Settings': '站点设置'
 'AI Smart CS · 3-Platform Unified': 'AI 智能客服 · 三平台统一'
 'AI Smart Processing': 'AI 智能处理'
 'AI Smart Website Builder': 'AI 智能建站'
@@ -3016,3 +3017,7 @@ Used to identify the key for management: 用于标识密钥用途，便于管理
 Your new API key: 您的新API密钥
 calls: 次
 e.g. Production key: 例如：生产环境密钥
+Theme: 主题
+Cyber Dark: 赛博暗夜
+Cloud Light: 云霁白
+Misty Gray: 晨雾灰

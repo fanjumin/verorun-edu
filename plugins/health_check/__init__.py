@@ -33,7 +33,7 @@ __all__ = ['health_bp', 'init_health_tables', 'get_db', 'HealthCheckPlugin']
 
 class HealthCheckPlugin(BasePlugin):
     name = 'health_check'
-    version = '1.5.0'
+    version = '1.7.0'
     description = 'System Health Check — Automated health monitoring + alerting + trend analysis'
     author = 'VeroRun'
 

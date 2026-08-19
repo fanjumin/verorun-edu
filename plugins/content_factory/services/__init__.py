@@ -32,56 +32,56 @@ def get_collector(source_type: str, source_id: int, config: dict = None) -> Opti
 def run_collection(source_id: int, source_type: str = None,
                    config: dict = None, **kwargs) -> dict:
     """执行一次采集"""
-    conn = get_cf_db()
-    src = conn.execute('SELECT * FROM content_sources WHERE id=?', (source_id,)).fetchone()
-    if not src:
-        return {'success': False, 'error': _('Source does not exist')}
-    if not src['is_active']:
-        return {'success': False, 'error': _('Source is disabled')}
+    with get_cf_db() as conn:
+        src = conn.execute('SELECT * FROM content_sources WHERE id=?', (source_id,)).fetchone()
+        if not src:
+            return {'success': False, 'error': _('Source does not exist')}
+        if not src['is_active']:
+            return {'success': False, 'error': _('Source is disabled')}
 
-    source_type = source_type or src['source_type']
-    cfg = {}
-    try:
-        cfg = json.loads(src['config_json'] or '{}')
-    except:
-        pass
-    cfg.update(config or {})
-    if src['url'] and 'url' not in cfg:
-        cfg['url'] = src['url']
+        source_type = source_type or src['source_type']
+        cfg = {}
+        try:
+            cfg = json.loads(src['config_json'] or '{}')
+        except:
+            pass
+        cfg.update(config or {})
+        if src['url'] and 'url' not in cfg:
+            cfg['url'] = src['url']
 
-    collector = get_collector(source_type, source_id, cfg)
-    if not collector:
-        return {'success': False, 'error': f'Unknown data type: {source_type}'}
+        collector = get_collector(source_type, source_id, cfg)
+        if not collector:
+            return {'success': False, 'error': f'Unknown data type: {source_type}'}
 
-    cur = conn.execute(
-        """INSERT INTO content_tasks (source_id, task_type, trigger_type, status, started_at, created_by)
-           VALUES (?, 'crawl', 'manual', 'running', NOW(), ?) RETURNING id""",
-        (source_id, kwargs.get('admin_id', 1))
-    )
-    conn.commit()
-    task_id = cur.fetchone()['id']
+        cur = conn.execute(
+            """INSERT INTO content_tasks (source_id, task_type, trigger_type, status, started_at, created_by)
+               VALUES (?, 'crawl', 'manual', 'running', NOW(), ?) RETURNING id""",
+            (source_id, kwargs.get('admin_id', 1))
+        )
+        conn.commit()
+        task_id = cur.fetchone()['id']
 
-    try:
-        results = collector.collect(**kwargs)
-        inserted, skipped = collector.save_results(results, task_id=task_id)
-        status = 'completed'
-        log = f"Total {len(results)} items → Added {inserted}, Skipped {skipped}"
-    except Exception as e:
-        logger.exception(f"[CF] 采集失败 source_id={source_id}")
-        status = 'failed'
-        inserted = 0
-        skipped = 0
-        log = str(e)
+        try:
+            results = collector.collect(**kwargs)
+            inserted, skipped = collector.save_results(results, task_id=task_id)
+            status = 'completed'
+            log = f"Total {len(results)} items → Added {inserted}, Skipped {skipped}"
+        except Exception as e:
+            logger.exception(f"[CF] 采集失败 source_id={source_id}")
+            status = 'failed'
+            inserted = 0
+            skipped = 0
+            log = str(e)
 
-    conn.execute(
-        """UPDATE content_tasks SET status=?, finished_at=NOW(),
-           total_items=?, done_items=?, log_text=? WHERE id=?""",
-        (status, inserted + skipped, inserted, log, task_id)
-    )
-    if status == 'completed':
-        conn.execute("UPDATE content_sources SET last_crawled_at=NOW() WHERE id=?", (source_id,))
-    conn.commit()
+        conn.execute(
+            """UPDATE content_tasks SET status=?, finished_at=NOW(),
+               total_items=?, done_items=?, log_text=? WHERE id=?""",
+            (status, inserted + skipped, inserted, log, task_id)
+        )
+        if status == 'completed':
+            conn.execute("UPDATE content_sources SET last_crawled_at=NOW() WHERE id=?", (source_id,))
+        conn.commit()
 
-    return {'success': status == 'completed', 'total': inserted + skipped,
-            'inserted': inserted, 'skipped': skipped, 'task_id': task_id,
-            'log': log, 'error': log if status == 'failed' else ''}
+        return {'success': status == 'completed', 'total': inserted + skipped,
+                'inserted': inserted, 'skipped': skipped, 'task_id': task_id,
+                'log': log, 'error': log if status == 'failed' else ''}

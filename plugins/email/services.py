@@ -457,12 +457,12 @@ def send_email(to_addr, subject, body_text, body_html=None, cc=None, reply_to=No
 
         # Record to plugin's independent PG schema (email)
         from .models import get_email_db
-        db = get_email_db()
-        db.execute(
-            "INSERT INTO email_sent (from_addr, to_addr, subject, body_text, body_html) VALUES (%s, %s, %s, %s, %s)",
-            (cfg['smtp_from'], ", ".join(to_addr), subject, body_text, body_html)
-        )
-        db.commit()
+        with get_email_db() as db:
+            db.execute(
+                "INSERT INTO email_sent (from_addr, to_addr, subject, body_text, body_html) VALUES (%s, %s, %s, %s, %s)",
+                (cfg['smtp_from'], ", ".join(to_addr), subject, body_text, body_html)
+            )
+            db.commit()
 
         logger.info(f"Email sent to {to_addr}: {subject}")
         return True, _("发送成功")
@@ -481,14 +481,14 @@ def send_email(to_addr, subject, body_text, body_html=None, cc=None, reply_to=No
 def get_sent_emails(page=1, per_page=20):
     """从独立 PG schema (email) 查询已发送邮件列表"""
     from .models import get_email_db
-    db = get_email_db()
-    count = db.execute("SELECT COUNT(*) FROM email_sent").fetchone()['count']
-    offset = (page - 1) * per_page
-    rows = db.execute(
-        "SELECT * FROM email_sent ORDER BY sent_at DESC LIMIT %s OFFSET %s",
-        (per_page, offset)
-    ).fetchall()
-    items = [dict(r) for r in rows]
+    with get_email_db() as db:
+        count = db.execute("SELECT COUNT(*) FROM email_sent").fetchone()['count']
+        offset = (page - 1) * per_page
+        rows = db.execute(
+            "SELECT * FROM email_sent ORDER BY sent_at DESC LIMIT %s OFFSET %s",
+            (per_page, offset)
+        ).fetchall()
+        items = [dict(r) for r in rows]
     return {"items": items, "total": count, "page": page, "per_page": per_page, "pages": max(1, (count + per_page - 1) // per_page)}
 
 

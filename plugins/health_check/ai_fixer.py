@@ -222,6 +222,57 @@ Rules:
 7. BE CONSERVATIVE — do not suggest destructive actions without strong evidence
 """
 
+GLOBAL_SYSTEM_PROMPT = """You are a senior site reliability engineer for the VeroRun system.
+
+Your job is to analyze the LATEST full health check run (all checkers at once)
+and produce a GLOBAL root-cause analysis across all items.
+
+You will receive JSON containing:
+- "run_id": the health check run id
+- "run_type": quick/standard/manual
+- "results": an array of check results, each with:
+    check_key, status ("passed"/"warning"/"error"), message, detail
+
+Analyze the WHOLE set and return a JSON object with:
+
+{
+  "summary": "One-paragraph overall health summary and the top priority issues",
+  "health_score": 0-100 (estimated from passed/total),
+  "critical_issues": ["list of check_keys that are error"],
+  "root_causes": [
+    {
+      "check_key": "the check item key (e.g. database, redis)",
+      "issue": "Description of the specific problem",
+      "root_cause": "Analysis of what caused this issue (e.g. redis not installed on OS)",
+      "action": "One of: update_url / mark_disabled / run_sql / notify_admin",
+      "params": {},
+      "priority": "high/medium/low",
+      "reason": "Why this fix is recommended"
+    }
+  ]
+}
+
+Action parameter formats:
+- update_url:  {"table": "table_name", "record_id": 123, "field": "url_column", "new_value": "https://new-url.com"}
+- mark_disabled: {"table": "table_name", "record_id": 123}
+- run_sql: {"sql": "UPDATE table SET field='value' WHERE id=%s", "params": [123]}
+Note: run_sql is restricted to non-destructive statements (SELECT / UPDATE / DELETE).
+      UPDATE/DELETE MUST include a WHERE clause. Never suggest DROP/ALTER/TRUNCATE/
+      CREATE/GRANT/REVOKE or any other destructive statement — they will be rejected.
+Note: The database is PostgreSQL — always use %s placeholder (NOT ?) for parameters.
+- notify_admin: {"message": "Alert message", "level": "warning/critical"}
+
+IMPORTANT:
+- Only status "warning"/"error" items indicate real issues. Analyze their detail data
+  and suggest appropriate actions. Do NOT invent issues for "passed" items.
+- For redis: if detail/error message indicates connection refused or client unavailable,
+  the likely root cause is redis-server not installed on the OS — suggest notify_admin
+  with an install instruction, or run_sql is NOT applicable.
+- For database: if detail contains "connections"/"max_connections", assess connection
+  pressure and suggest notify_admin if usage exceeds 80%.
+- BE CONSERVATIVE — do not suggest destructive actions without strong evidence.
+"""
+
 
 # ─── AIFixer Class ───────────────────────────────────────────────────────
 
@@ -245,8 +296,62 @@ class AIFixer:
 
         check_results should be a dict with at minimum:
             {'check_key': str, 'status': str, 'message': str, 'detail': dict}
+        Global mode (analyze the full run at once):
+            {'run_id': int, 'run_type': str, 'results': [check_result, ...]}
         """
 
+        # ── 全局模式：多检查项一次分析 ──────────────────────────────────
+        if 'results' in check_results and isinstance(check_results.get('results'), list):
+            results = check_results['results']
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                detail = item.get('detail')
+                if isinstance(detail, dict):
+                    # 精简大字段，避免 LLM 上下文溢出
+                    slim = {}
+                    for k, v in detail.items():
+                        v_str = json.dumps(v, ensure_ascii=False)
+                        if isinstance(v, list) and len(v_str) > 300:
+                            slim[k] = f"[{len(v)} items, truncated]"
+                        elif isinstance(v, dict):
+                            slim[k] = v
+                        elif len(v_str) > 400:
+                            slim[k] = v_str[:400] + '... [truncated]'
+                        else:
+                            slim[k] = v
+                    item['detail'] = slim
+            user_prompt = json.dumps(check_results, ensure_ascii=False, indent=2)
+            response_text = _call_llm(GLOBAL_SYSTEM_PROMPT, user_prompt)
+            if not response_text:
+                return {
+                    'summary': 'LLM analysis failed',
+                    'items': [],
+                    '_error': 'LLM call failed or blocked (AI budget / model resolution / API error). Check plugin logs for details.',
+                }
+
+            import re
+            fence = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if fence:
+                response_text = fence.group(1)
+            try:
+                plan = json.loads(response_text)
+            except json.JSONDecodeError:
+                match = re.search(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', response_text, re.DOTALL)
+                if match:
+                    try:
+                        plan = json.loads(match.group())
+                    except json.JSONDecodeError:
+                        plan = {'summary': 'Failed to parse LLM response', 'items': [],
+                                '_error': 'LLM response was not valid JSON.'}
+                else:
+                    plan = {'summary': 'Failed to parse LLM response', 'items': [],
+                            '_error': 'LLM response was not valid JSON.'}
+            if 'root_causes' in plan:
+                plan.setdefault('items', plan.get('root_causes', []))
+            return plan
+
+        # ── 单检查项模式（原逻辑） ──────────────────────────────────────
         # Truncate detail if too large to avoid LLM timeout/context overflow
         full_json = json.dumps(check_results, ensure_ascii=False, indent=2)
         if len(full_json) > 6000:

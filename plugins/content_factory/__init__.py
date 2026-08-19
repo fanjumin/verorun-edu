@@ -149,22 +149,22 @@ class ContentFactoryPlugin(BasePlugin):
         """Dashboard 统计（§2.3/§6.3）：从插件独立库取数。"""
         stats = {'source_count': 0, 'pending': 0, 'processed': 0, 'published': 0, 'failed': 0}
         try:
-            conn = get_cf_db()
-            stats['source_count'] = conn.execute(
-                'SELECT COUNT(*) FROM content_sources WHERE is_active=1'
-            ).fetchone()['count'] or 0
-            stats['pending'] = conn.execute(
-                "SELECT COUNT(*) FROM raw_contents WHERE status='pending'"
-            ).fetchone()['count'] or 0
-            stats['processed'] = conn.execute(
-                'SELECT COUNT(*) FROM processed_contents'
-            ).fetchone()['count'] or 0
-            stats['published'] = conn.execute(
-                'SELECT COUNT(*) FROM processed_contents WHERE is_published=1'
-            ).fetchone()['count'] or 0
-            stats['failed'] = conn.execute(
-                "SELECT COUNT(*) FROM raw_contents WHERE status='failed'"
-            ).fetchone()['count'] or 0
+            with get_cf_db() as conn:
+                stats['source_count'] = conn.execute(
+                    'SELECT COUNT(*) FROM content_sources WHERE is_active=1'
+                ).fetchone()['count'] or 0
+                stats['pending'] = conn.execute(
+                    "SELECT COUNT(*) FROM raw_contents WHERE status='pending'"
+                ).fetchone()['count'] or 0
+                stats['processed'] = conn.execute(
+                    'SELECT COUNT(*) FROM processed_contents'
+                ).fetchone()['count'] or 0
+                stats['published'] = conn.execute(
+                    'SELECT COUNT(*) FROM processed_contents WHERE is_published=1'
+                ).fetchone()['count'] or 0
+                stats['failed'] = conn.execute(
+                    "SELECT COUNT(*) FROM raw_contents WHERE status='failed'"
+                ).fetchone()['count'] or 0
         except Exception as e:
             logger.warning(f'[ContentFactoryPlugin] get_dashboard_stats failed: {e}')
         return stats

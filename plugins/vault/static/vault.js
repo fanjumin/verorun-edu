@@ -1,7 +1,36 @@
 /* ══════════════════════════════════════════════════════════════
    Vault 2.0 — Plugin JavaScript
    Dashboard + Restore + Schedules + Storage + Audit + Settings
+   V20260819: inherit Admin three-theme (dark/light/slate) via
+   localStorage 'verorun_admin_theme' + storage event sync.
    ══════════════════════════════════════════════════════════════ */
+
+// ── Theme sync from Admin SPA (same-origin iframe) ──
+(function () {
+  try {
+    var t = localStorage.getItem('verorun_admin_theme');
+    if (t === 'light' || t === 'slate') document.documentElement.setAttribute('data-theme', t);
+    window.addEventListener('storage', function (e) {
+      if (e.key !== 'verorun_admin_theme') return;
+      var v = e.newValue;
+      if (v === 'light' || v === 'slate') document.documentElement.setAttribute('data-theme', v);
+      else document.documentElement.removeAttribute('data-theme');
+    });
+  } catch (e) {}
+})();
+
+// ── Resolve CSS variables for canvas/ECharts colors ──
+function vCssVar(name) {
+  var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return v ? v.trim() : '';
+}
+function vHexToRgba(hex, alpha) {
+  var m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return hex;
+  var n = parseInt(m[1], 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+}
+
 (function () {
   'use strict';
 
@@ -230,15 +259,18 @@
         // Chart 1: Backup Size Trend
         var ct = document.getElementById('chartTrend');
         if (ct) {
+          var cMuted = vCssVar('--muted') || '#94a3b8';
+          var cBorder = vCssVar('--border') || 'rgba(255,255,255,0.05)';
+          var cBar = vCssVar('--accent2') || '#6366f1';
           var chartTrend = echarts.init(ct);
           chartTrend.setOption({
             tooltip: { trigger: 'axis' },
             grid: { left: 50, right: 20, top: 20, bottom: 30 },
-            xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 30 } },
-            yAxis: { type: 'value', name: 'MB', axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+            xAxis: { type: 'category', data: dates, axisLabel: { color: cMuted, fontSize: 10, rotate: 30 } },
+            yAxis: { type: 'value', name: 'MB', axisLabel: { color: cMuted }, splitLine: { lineStyle: { color: cBorder } } },
             series: [{
               data: sizes, type: 'bar',
-              itemStyle: { color: '#6366f1', borderRadius: [4, 4, 0, 0] },
+              itemStyle: { color: cBar, borderRadius: [4, 4, 0, 0] },
             }],
           });
           window.addEventListener('resize', function () { chartTrend.resize(); });
@@ -247,18 +279,21 @@
         // Chart 2: Storage Growth (cumulative)
         var cs = document.getElementById('chartStorage');
         if (cs) {
+          var cLine = vCssVar('--accent') || '#00f5ff';
+          var cMuted2 = vCssVar('--muted') || '#94a3b8';
+          var cBorder2 = vCssVar('--border') || 'rgba(255,255,255,0.05)';
           var chartStorage = echarts.init(cs);
           chartStorage.setOption({
             tooltip: { trigger: 'axis' },
             grid: { left: 50, right: 20, top: 20, bottom: 30 },
-            xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 30 } },
-            yAxis: { type: 'value', name: 'MB', axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+            xAxis: { type: 'category', data: dates, axisLabel: { color: cMuted2, fontSize: 10, rotate: 30 } },
+            yAxis: { type: 'value', name: 'MB', axisLabel: { color: cMuted2 }, splitLine: { lineStyle: { color: cBorder2 } } },
             series: [{
               data: cumulative, type: 'line', smooth: true,
-              lineStyle: { color: '#00f5ff', width: 2 },
-              itemStyle: { color: '#00f5ff' },
+              lineStyle: { color: cLine, width: 2 },
+              itemStyle: { color: cLine },
               areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                colorStops: [{ offset: 0, color: 'rgba(0,245,255,0.2)' }, { offset: 1, color: 'rgba(0,245,255,0.01)' }] } },
+                colorStops: [{ offset: 0, color: vHexToRgba(cLine, 0.2) }, { offset: 1, color: vHexToRgba(cLine, 0.01) }] } },
             }],
           });
           window.addEventListener('resize', function () { chartStorage.resize(); });

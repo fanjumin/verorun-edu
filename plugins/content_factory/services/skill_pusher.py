@@ -68,73 +68,73 @@ def _escape_yaml(text: str) -> str:
 
 def push_to_skill(processed_id: int, admin_id: int = 1,
                   target_agent: str = 'hermes', category: str = 'content') -> dict:
-    conn = get_cf_db()
-    pc = conn.execute(
-        """SELECT p.*, r.source_url
-           FROM processed_contents p LEFT JOIN raw_contents r ON p.raw_id=r.id
-           WHERE p.id=?""", (processed_id,)
-    ).fetchone()
-    if not pc:
-        return {'success': False, 'error': _('Processed Content Does Not Exist')}
+    with get_cf_db() as conn:
+        pc = conn.execute(
+            """SELECT p.*, r.source_url
+               FROM processed_contents p LEFT JOIN raw_contents r ON p.raw_id=r.id
+               WHERE p.id=?""", (processed_id,)
+        ).fetchone()
+        if not pc:
+            return {'success': False, 'error': _('Processed Content Does Not Exist')}
 
-    skill_content = generate_skill_md(dict(pc), pc.get('source_url', '') or '')
-    skill_name = generate_skill_name(pc['title'] or f'content-{processed_id}')
+        skill_content = generate_skill_md(dict(pc), pc.get('source_url', '') or '')
+        skill_name = generate_skill_name(pc['title'] or f'content-{processed_id}')
 
-    existing = conn.execute(
-        'SELECT id, push_count FROM skill_pushes WHERE processed_id=? AND target_agent=?',
-        (processed_id, target_agent)
-    ).fetchone()
+        existing = conn.execute(
+            'SELECT id, push_count FROM skill_pushes WHERE processed_id=? AND target_agent=?',
+            (processed_id, target_agent)
+        ).fetchone()
 
-    if existing:
-        conn.execute(
-            """UPDATE skill_pushes SET skill_content=?, title=?, description=?,
-               skill_version=?, status='pushed', push_count=push_count+1,
-               last_pushed_at=NOW() WHERE id=?""",
-            (skill_content, pc['title'], pc['summary'] or '',
-             datetime.now().strftime('%Y%m%d'), existing['id'])
-        )
-        push_id = existing['id']
-    else:
-        cur = conn.execute(
-            """INSERT INTO skill_pushes (processed_id, title, description,
-               skill_name, skill_category, skill_content, target_agent,
-               push_count, last_pushed_at, created_by)
-               VALUES (?,?,?,?,?,?,?,1,NOW(),?) RETURNING id""",
-            (processed_id, pc['title'], pc['summary'] or '',
-             skill_name, category, skill_content, target_agent, admin_id)
-        )
-        push_id = cur.fetchone()['id']
-    conn.commit()
+        if existing:
+            conn.execute(
+                """UPDATE skill_pushes SET skill_content=?, title=?, description=?,
+                   skill_version=?, status='pushed', push_count=push_count+1,
+                   last_pushed_at=NOW() WHERE id=?""",
+                (skill_content, pc['title'], pc['summary'] or '',
+                 datetime.now().strftime('%Y%m%d'), existing['id'])
+            )
+            push_id = existing['id']
+        else:
+            cur = conn.execute(
+                """INSERT INTO skill_pushes (processed_id, title, description,
+                   skill_name, skill_category, skill_content, target_agent,
+                   push_count, last_pushed_at, created_by)
+                   VALUES (?,?,?,?,?,?,?,1,NOW(),?) RETURNING id""",
+                (processed_id, pc['title'], pc['summary'] or '',
+                 skill_name, category, skill_content, target_agent, admin_id)
+            )
+            push_id = cur.fetchone()['id']
+        conn.commit()
 
-    return {'success': True, 'push_id': push_id, 'skill_name': skill_name,
-            'target_agent': target_agent, 'skill_content': skill_content}
+        return {'success': True, 'push_id': push_id, 'skill_name': skill_name,
+                'target_agent': target_agent, 'skill_content': skill_content}
 
 
 def list_pushed_skills(limit: int = 20, target_agent: str = '') -> list:
-    conn = get_cf_db()
     where = ['1=1']
     params = []
     if target_agent:
         where.append('s.target_agent=?')
         params.append(target_agent)
-    rows = conn.execute(
-        f"""SELECT s.*, p.title as processed_title
-            FROM skill_pushes s LEFT JOIN processed_contents p ON s.processed_id=p.id
-            WHERE {" AND ".join(where)}
-            ORDER BY s.id DESC LIMIT ?""",
-        params + [limit]
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with get_cf_db() as conn:
+        rows = conn.execute(
+            f"""SELECT s.*, p.title as processed_title
+                FROM skill_pushes s LEFT JOIN processed_contents p ON s.processed_id=p.id
+                WHERE {" AND ".join(where)}
+                ORDER BY s.id DESC LIMIT ?""",
+            params + [limit]
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_skill_by_id(push_id: int) -> Optional[dict]:
-    conn = get_cf_db()
-    row = conn.execute(
-        """SELECT s.*, p.title as processed_title
-           FROM skill_pushes s LEFT JOIN processed_contents p ON s.processed_id=p.id
-           WHERE s.id=?""", (push_id,)
-    ).fetchone()
-    return dict(row) if row else None
+    with get_cf_db() as conn:
+        row = conn.execute(
+            """SELECT s.*, p.title as processed_title
+               FROM skill_pushes s LEFT JOIN processed_contents p ON s.processed_id=p.id
+               WHERE s.id=?""", (push_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def get_skill_for_download(push_id: int) -> Optional[dict]:

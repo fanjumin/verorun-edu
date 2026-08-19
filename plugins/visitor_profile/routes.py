@@ -312,15 +312,15 @@ def api_list_events():
             events = vm.EventLogModel.get_by_visitor(
                 visitor_id, limit=page_size)
         else:
-            conn = vm.get_db()
-            rows = conn.execute('''
-                SELECT id, visitor_id, event_type, page_url, page_title,
-                       event_data, session_id, client_ts, server_ts
-                FROM event_log
-                ORDER BY server_ts DESC
-                LIMIT %s OFFSET %s
-            ''', (page_size, offset)).fetchall()
-            events = [dict(r) for r in rows]
+            with vm.get_db() as conn:
+                rows = conn.execute('''
+                    SELECT id, visitor_id, event_type, page_url, page_title,
+                           event_data, session_id, client_ts, server_ts
+                    FROM event_log
+                    ORDER BY server_ts DESC
+                    LIMIT %s OFFSET %s
+                ''', (page_size, offset)).fetchall()
+                events = [dict(r) for r in rows]
 
         return jsonify({'success': True, 'data': events})
     except Exception as e:
@@ -334,8 +334,6 @@ def api_list_events():
 def api_stats():
     """仪表盘统计数据（总访客 / 24h 事件 / 24h 画像 / 平均耗时 / 任务状态）。"""
     try:
-        conn = vm.get_db()
-
         total_visitors = vm.VisitorModel.count()
         events_24h = vm.VisitorModel.count_events_24h()
         profiles_24h = vm.MemoryModel.count_created_24h()
@@ -345,16 +343,17 @@ def api_stats():
         # Top 意图（profile_summary->>'primary_intent'）
         top_intents = []
         try:
-            rows = conn.execute('''
-                SELECT profile_summary->>'primary_intent' AS intent,
-                       COUNT(*) AS cnt
-                FROM visitors
-                WHERE profile_summary ? 'primary_intent'
-                GROUP BY intent
-                ORDER BY cnt DESC
-                LIMIT 10
-            ''').fetchall()
-            top_intents = [dict(r) for r in rows]
+            with vm.get_db() as conn:
+                rows = conn.execute('''
+                    SELECT profile_summary->>'primary_intent' AS intent,
+                           COUNT(*) AS cnt
+                    FROM visitors
+                    WHERE profile_summary ? 'primary_intent'
+                    GROUP BY intent
+                    ORDER BY cnt DESC
+                    LIMIT 10
+                ''').fetchall()
+                top_intents = [dict(r) for r in rows]
         except Exception:
             pass
 

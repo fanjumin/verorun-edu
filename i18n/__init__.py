@@ -385,7 +385,7 @@ def seed_from_yaml(locale: str = None) -> int:
         acquired = conn.execute(
             'SELECT pg_try_advisory_lock(%s)', (lock_id,)
         ).fetchone()
-        if not acquired or not acquired[0]:
+        if not acquired or not list(acquired.values())[0]:
             return 0  # 其他进程正在播种，跳过
         for source, translation in yml.items():
             if not source or not translation or source == translation:
@@ -453,7 +453,7 @@ def seed_plugin_translations(plugin_id: str, locale_dir: str) -> int:
             acquired = conn.execute(
                 'SELECT pg_try_advisory_lock(%s)', (lock_id,)
             ).fetchone()
-            if not acquired or not acquired[0]:
+            if not acquired or not list(acquired.values())[0]:
                 continue  # 其他进程正在播种，跳过
             for source, translation in data.items():
                 if not source or not translation:
@@ -484,4 +484,5 @@ def seed_plugin_translations(plugin_id: str, locale_dir: str) -> int:
                     pass
     if count:
         print(f'[i18n] plugin {plugin_id}: seeded {count} translations')
+    get_all_translations.cache_clear()  # 无论播种/跳过都清缓存，防多 worker 竞态缓存空字典
     return count

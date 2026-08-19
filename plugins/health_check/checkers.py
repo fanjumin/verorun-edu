@@ -384,13 +384,27 @@ class CoreAPIHealthCheck(BaseHealthCheck):
             if not ok:
                 all_ok = False
 
+        # 就绪探针：health-service /ready（DB 连通性）。
+        # /health 存活探针在 DB 异常时仍返回 200，而 /ready 会返回 503。
+        rcode, relapsed, _ = self._http_get(
+            'http://127.0.0.1:8085/ready', self.config.get('timeout', 5)
+        )
+        max_time = max(max_time, relapsed)
+        ready_ok = rcode == 200
+        results['Health Service (readiness /ready)'] = {
+            'code': rcode, 'ms': relapsed, 'ok': ready_ok
+        }
+        if not ready_ok:
+            all_ok = False
+
         detail = {'endpoints': results}
+        total = len(results)
         if all_ok:
-            return CheckResult('passed', max_time, f'All {len(subdomains)} subsite APIs OK', detail)
+            return CheckResult('passed', max_time, f'All {total} subsite endpoints OK', detail)
         failed = [k for k, v in results.items() if not v['ok']]
         status = 'warning' if len(failed) <= 2 else 'error'
         return CheckResult(status, max_time,
-                           f'{len(failed)}/{len(subdomains)} subsites abnormal: {", ".join(failed)}', detail)
+                           f'{len(failed)}/{total} subsite endpoints abnormal: {", ".join(failed)}', detail)
 
 
 # ─── 2. Database Connection Check ───────────────────────────────────────
@@ -425,10 +439,38 @@ class DatabaseHealthCheck(BaseHealthCheck):
                 db_size = conn.execute(
                     "SELECT pg_database_size(current_database()) as sz"
                 ).fetchone()['sz']
+                # ── 连接数指标：总量 + 按应用分组 ─────────────────────────
+                max_conn = int(conn.execute('SHOW max_connections').fetchone()['max_connections'])
+                conn_row = conn.execute(
+                    "SELECT COUNT(*) AS total FROM pg_stat_activity"
+                ).fetchone()
+                total_conn = conn_row['total']
+                groups = conn.execute(
+                    "SELECT COALESCE(application_name, '(none)') AS app, COUNT(*) AS cnt "
+                    "FROM pg_stat_activity GROUP BY 1 ORDER BY 2 DESC"
+                ).fetchall()
+                group_detail = {g['app']: g['cnt'] for g in groups}
+                app_breakdown = ', '.join(f"{k}:{v}" for k, v in group_detail.items() if v > 0)
             size_str = f'{db_size/1024/1024:.1f}MB' if db_size > 1024*1024 else f'{db_size/1024:.0f}KB'
+            # 连接数超 max_connections 的 80% → warning（连接压力预警）
+            warn_threshold = int(max_conn * 0.8)
+            if total_conn > warn_threshold:
+                msg = (f'High DB connections: {total_conn}/{max_conn} '
+                       f'({tables} tables, {size_str}) [{app_breakdown}]')
+                return CheckResult('warning', elapsed, msg, {
+                    'tables': tables,
+                    'db_size_bytes': db_size,
+                    'type': 'PostgreSQL',
+                    'connections': total_conn,
+                    'max_connections': max_conn,
+                    'connection_groups': group_detail,
+                })
             return CheckResult('passed', elapsed,
-                               f'Database OK ({tables} tables, {size_str})',
-                               {'tables': tables, 'db_size_bytes': db_size, 'type': 'PostgreSQL'})
+                               f'Database OK ({tables} tables, {size_str}, '
+                               f'{total_conn}/{max_conn} conns)',
+                               {'tables': tables, 'db_size_bytes': db_size, 'type': 'PostgreSQL',
+                                'connections': total_conn, 'max_connections': max_conn,
+                                'connection_groups': group_detail})
         except Exception as e:
             elapsed = int((time.time() - start) * 1000)
             return CheckResult('error', elapsed, f'Database connection failed: {e}', {'error': str(e)})
@@ -702,7 +744,11 @@ class WorkflowHealthCheck(BaseHealthCheck):
     severity = 'warning'
     description = 'Cron / Workflow scheduler running status and recent execution records'
     sort_order = 60
-    config_defaults = {'timeout': 5}
+    config_defaults = {
+        'timeout': 5,
+        # orchestrator /health（无需认证）：报告 APScheduler 与 worker pool 进程级活性
+        'automation_url': 'http://127.0.0.1:8084/admin/automation/health',
+    }
 
     def check(self) -> CheckResult:
         start = time.time()
@@ -724,12 +770,36 @@ class WorkflowHealthCheck(BaseHealthCheck):
                     "WHERE status='failed' AND created_at>=NOW() - INTERVAL '1 day'"
                 ).fetchone()['c']
                 except: recent_failed = 0
+
+            # 真实活性探测：DB 正常但调度进程崩溃时，仅查表无法发现。
+            # 通过 orchestrator /health 获取 APScheduler / worker pool 运行状态。
+            automation_url = self.config.get(
+                'automation_url', 'http://127.0.0.1:8084/admin/automation/health'
+            )
+            sched_running = None
+            worker_active = None
+            code, _, body = self._http_get(automation_url, self.config.get('timeout', 5))
+            if code == 200:
+                try:
+                    proc = json.loads(body)
+                    sched_running = bool(proc.get('scheduler_running'))
+                    worker_active = bool(proc.get('worker_pool_active'))
+                except (json.JSONDecodeError, TypeError):
+                    sched_running = None
+
             elapsed = int((time.time() - start) * 1000)
             detail = {'cron_total': cron_total, 'cron_active': cron_active,
-                      'workflows': wf_total, 'recent_failures_24h': recent_failed}
+                      'workflows': wf_total, 'recent_failures_24h': recent_failed,
+                      'scheduler_running': sched_running, 'worker_pool_active': worker_active}
             warnings = []
             if recent_failed > 5:
                 warnings.append(f'{recent_failed} workflow failures in 24h')
+            if sched_running is False:
+                warnings.append('APScheduler is not running')
+            if worker_active is False:
+                warnings.append('Worker pool is not active')
+            if sched_running is None:
+                warnings.append('Orchestrator /health endpoint unreachable')
             status = 'passed' if not warnings else 'warning'
             msg = f'{cron_active}/{cron_total} Cron active | {wf_total} workflows'
             if warnings:

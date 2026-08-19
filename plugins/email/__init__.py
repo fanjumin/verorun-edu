@@ -79,11 +79,11 @@ class EmailPlugin(BasePlugin):
         """Dashboard 统计：已发送邮件总数、联系人总数（§2.3/§6.3）。"""
         try:
             from .models import get_email_db
-            db = get_email_db()
-            total_sent = db.execute("SELECT COUNT(*) AS count FROM email_sent").fetchone()['count']
-            total_contacts = db.execute(
-                "SELECT COUNT(DISTINCT to_addr) AS count FROM email_sent"
-            ).fetchone()['count']
+            with get_email_db() as db:
+                total_sent = db.execute("SELECT COUNT(*) AS count FROM email_sent").fetchone()['count']
+                total_contacts = db.execute(
+                    "SELECT COUNT(DISTINCT to_addr) AS count FROM email_sent"
+                ).fetchone()['count']
             return {'total_sent': total_sent, 'total_contacts': total_contacts}
         except Exception:
             return {'total_sent': 0, 'total_contacts': 0}

@@ -937,8 +937,56 @@ def api_ai_analyze():
     check_key = data.get('check_key', '')
     detail_override = data.get('detail')
 
+    # ── 全局模式：无 check_key → 分析最近一次 run 的全部检查结果 ──────
     if not check_key and not detail_override:
-        return jsonify({'success': False, 'error': 'check_key or detail is required'}), 400
+        with m.get_db() as conn:
+            if run_id:
+                latest = conn.execute(
+                    'SELECT id, run_type FROM health_runs WHERE id=%s LIMIT 1',
+                    (run_id,)
+                ).fetchone()
+            else:
+                latest = conn.execute(
+                    'SELECT id, run_type FROM health_runs ORDER BY id DESC LIMIT 1'
+                ).fetchone()
+            if not latest:
+                return jsonify({'success': False, 'error': _t('No health run found')}), 404
+            rows = conn.execute(
+                'SELECT check_key, status, message, detail FROM check_history '
+                'WHERE run_id=%s ORDER BY id ASC',
+                (latest['id'],)
+            ).fetchall()
+        results = []
+        for row in rows:
+            detail_raw = row['detail'] or '{}'
+            detail = json.loads(detail_raw) if isinstance(detail_raw, str) else (detail_raw or {})
+            results.append({
+                'check_key': row['check_key'],
+                'status': row.get('status', 'unknown'),
+                'message': row.get('message', ''),
+                'detail': detail,
+            })
+        if not results:
+            return jsonify({'success': False, 'error': _t('No check results for this run')}), 404
+        from .ai_fixer import AIFixer
+        fixer = AIFixer()
+        plan = fixer.analyze({
+            'run_id': latest['id'],
+            'run_type': latest.get('run_type', 'unknown'),
+            'results': results,
+        })
+        return jsonify({
+            'success': True,
+            'data': {
+                'ok': not plan.get('_error'),
+                'summary': plan.get('summary', ''),
+                'error': plan.get('_error', ''),
+                'health_score': plan.get('health_score'),
+                'critical_issues': plan.get('critical_issues', []),
+                'items': plan.get('items', plan.get('root_causes', [])),
+                'raw_plan': plan,
+            }
+        })
 
     # Fetch detail from DB if not provided
     check_status = 'unknown'

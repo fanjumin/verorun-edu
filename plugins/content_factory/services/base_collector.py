@@ -78,26 +78,26 @@ class BaseCollector:
 
     def save_results(self, results: List[CollectResult], task_id: int = 0) -> Tuple[int, int]:
         from plugins.content_factory.models import get_cf_db
-        conn = get_cf_db()
-        inserted = 0
-        skipped = 0
-        for r in results:
-            dup, why = self._is_duplicate(conn, r.title, r.content_hash)
-            if dup:
-                skipped += 1
-                continue
-            conn.execute(
-                """INSERT INTO raw_contents (source_id, task_id, title, author,
-                   source_url, content_text, content_html, summary, content_hash,
-                   publish_time, tags, content_json)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (self.source_id, task_id or None, r.title, r.author,
-                 r.source_url, r.content_text, r.content_html, r.summary,
-                 r.content_hash, r.publish_time, r.tags, r.content_json)
-            )
-            inserted += 1
-        conn.commit()
-        return inserted, skipped
+        with get_cf_db() as conn:
+            inserted = 0
+            skipped = 0
+            for r in results:
+                dup, why = self._is_duplicate(conn, r.title, r.content_hash)
+                if dup:
+                    skipped += 1
+                    continue
+                conn.execute(
+                    """INSERT INTO raw_contents (source_id, task_id, title, author,
+                       source_url, content_text, content_html, summary, content_hash,
+                       publish_time, tags, content_json)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (self.source_id, task_id or None, r.title, r.author,
+                     r.source_url, r.content_text, r.content_html, r.summary,
+                     r.content_hash, r.publish_time, r.tags, r.content_json)
+                )
+                inserted += 1
+            conn.commit()
+            return inserted, skipped
 
     def collect(self, **kwargs) -> List[CollectResult]:
         raise NotImplementedError

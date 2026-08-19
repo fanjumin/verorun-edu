@@ -35,12 +35,12 @@ def _get_db():
 def dashboard():
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    source_count = conn.execute('SELECT COUNT(*) FROM content_sources WHERE is_active=1').fetchone()['count']
-    pending = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='pending'").fetchone()['count']
-    processed = conn.execute("SELECT COUNT(*) FROM processed_contents").fetchone()['count']
-    published = conn.execute("SELECT COUNT(*) FROM processed_contents WHERE is_published=1").fetchone()['count']
-    failed = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='failed'").fetchone()['count']
+    with _get_db() as conn:
+        source_count = conn.execute('SELECT COUNT(*) FROM content_sources WHERE is_active=1').fetchone()['count']
+        pending = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='pending'").fetchone()['count']
+        processed = conn.execute("SELECT COUNT(*) FROM processed_contents").fetchone()['count']
+        published = conn.execute("SELECT COUNT(*) FROM processed_contents WHERE is_published=1").fetchone()['count']
+        failed = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='failed'").fetchone()['count']
     return jsonify({'success': True, 'data': {
         'source_count': source_count, 'pending': pending,
         'processed': processed, 'published': published, 'failed': failed,
@@ -55,8 +55,8 @@ def dashboard():
 def list_sources():
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    rows = conn.execute('SELECT * FROM content_sources ORDER BY sort_order, id').fetchall()
+    with _get_db() as conn:
+        rows = conn.execute('SELECT * FROM content_sources ORDER BY sort_order, id').fetchall()
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
@@ -69,20 +69,20 @@ def add_source():
     for k in required:
         if not d.get(k):
             return jsonify({'success': False, 'error': f'{k} Required'})
-    conn = _get_db()
-    cur = conn.execute(
-        """INSERT INTO content_sources (name, source_type, platform, url, config_json,
-           crawl_interval, keywords, max_per_run, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""",
-        (d['name'], d['source_type'], d.get('platform', ''),
-         d['url'], json.dumps(d.get('config', {}), ensure_ascii=False),
-         int(d.get('crawl_interval', 0)),
-         d.get('keywords', ''),
-         int(d.get('max_per_run', 10)),
-         admin['user_id'])
-    )
-    conn.commit()
-    sid = cur.fetchone()['id']
+    with _get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO content_sources (name, source_type, platform, url, config_json,
+               crawl_interval, keywords, max_per_run, created_by)
+               VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""",
+            (d['name'], d['source_type'], d.get('platform', ''),
+             d['url'], json.dumps(d.get('config', {}), ensure_ascii=False),
+             int(d.get('crawl_interval', 0)),
+             d.get('keywords', ''),
+             int(d.get('max_per_run', 10)),
+             admin['user_id'])
+        )
+        conn.commit()
+        sid = cur.fetchone()['id']
     _log(admin['user_id'], 'cf_source_add', 'content_source_', str(sid), f"Source: {d['name']}")
     return jsonify({'success': True, 'id': sid})
 
@@ -105,9 +105,9 @@ def update_source(sid):
     sets.append("config_json=?")
     vals.append(json.dumps(d.get('config', {}), ensure_ascii=False))
     vals.append(sid)
-    conn = _get_db()
-    conn.execute(f"UPDATE content_sources SET {', '.join(sets)} WHERE id=?", vals)
-    conn.commit()
+    with _get_db() as conn:
+        conn.execute(f"UPDATE content_sources SET {', '.join(sets)} WHERE id=?", vals)
+        conn.commit()
     _log(admin['user_id'], 'cf_source_update', 'content_source', str(sid))
     return jsonify({'success': True})
 
@@ -116,9 +116,9 @@ def update_source(sid):
 def delete_source(sid):
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    conn.execute('DELETE FROM content_sources WHERE id=?', (sid,))
-    conn.commit()
+    with _get_db() as conn:
+        conn.execute('DELETE FROM content_sources WHERE id=?', (sid,))
+        conn.commit()
     _log(admin['user_id'], 'cf_source_delete', 'content_source', str(sid))
     return jsonify({'success': True})
 
@@ -165,17 +165,17 @@ def list_contents():
         where.append('r.status=?')
         params.append(status)
 
-    conn = _get_db()
-    total = conn.execute(
-        f'SELECT COUNT(*) FROM raw_contents r WHERE {" AND ".join(where)}', params
-    ).fetchone()['count']
-    rows = conn.execute(
-        f"""SELECT r.*, s.name as source_name
-            FROM raw_contents r LEFT JOIN content_sources s ON r.source_id=s.id
-            WHERE {" AND ".join(where)}
-            ORDER BY r.id DESC LIMIT ? OFFSET ?""",
-        params + [limit, offset]
-    ).fetchall()
+    with _get_db() as conn:
+        total = conn.execute(
+            f'SELECT COUNT(*) FROM raw_contents r WHERE {" AND ".join(where)}', params
+        ).fetchone()['count']
+        rows = conn.execute(
+            f"""SELECT r.*, s.name as source_name
+                FROM raw_contents r LEFT JOIN content_sources s ON r.source_id=s.id
+                WHERE {" AND ".join(where)}
+                ORDER BY r.id DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset]
+        ).fetchall()
     return jsonify({'success': True, 'data': [dict(r) for r in rows],
                     'total': total, 'page': page, 'limit': limit})
 
@@ -184,10 +184,10 @@ def list_contents():
 def delete_content(rid):
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    conn.execute('DELETE FROM raw_contents WHERE id=?', (rid,))
-    conn.execute('DELETE FROM processed_contents WHERE raw_id=?', (rid,))
-    conn.commit()
+    with _get_db() as conn:
+        conn.execute('DELETE FROM raw_contents WHERE id=?', (rid,))
+        conn.execute('DELETE FROM processed_contents WHERE raw_id=?', (rid,))
+        conn.commit()
     _log(admin['user_id'], 'cf_delete', 'raw_content', str(rid))
     return jsonify({'success': True})
 
@@ -230,18 +230,18 @@ def list_processed():
         where.append('p.status=?')
         params.append(status)
 
-    conn = _get_db()
-    total = conn.execute(
-        f'SELECT COUNT(*) FROM processed_contents p WHERE {" AND ".join(where)}', params
-    ).fetchone()['count']
-    rows = conn.execute(
-        f"""SELECT p.*, r.title as raw_title, r.source_url
-            FROM processed_contents p
-            LEFT JOIN raw_contents r ON p.raw_id=r.id
-            WHERE {" AND ".join(where)}
-            ORDER BY p.id DESC LIMIT ? OFFSET ?""",
-        params + [limit, offset]
-    ).fetchall()
+    with _get_db() as conn:
+        total = conn.execute(
+            f'SELECT COUNT(*) FROM processed_contents p WHERE {" AND ".join(where)}', params
+        ).fetchone()['count']
+        rows = conn.execute(
+            f"""SELECT p.*, r.title as raw_title, r.source_url
+                FROM processed_contents p
+                LEFT JOIN raw_contents r ON p.raw_id=r.id
+                WHERE {" AND ".join(where)}
+                ORDER BY p.id DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset]
+        ).fetchall()
     return jsonify({'success': True, 'data': [dict(r) for r in rows],
                     'total': total, 'page': page, 'limit': limit})
 
@@ -254,11 +254,11 @@ def batch_delete_processed():
     ids = d.get('ids', [])
     if not ids:
         return jsonify({'success': False, 'error': _('Ids are required')})
-    conn = _get_db()
-    for pid in ids:
-        conn.execute('DELETE FROM skill_pushes WHERE processed_id=?', (pid,))
-        conn.execute('DELETE FROM processed_contents WHERE id=?', (pid,))
-    conn.commit()
+    with _get_db() as conn:
+        for pid in ids:
+            conn.execute('DELETE FROM skill_pushes WHERE processed_id=?', (pid,))
+            conn.execute('DELETE FROM processed_contents WHERE id=?', (pid,))
+        conn.commit()
     _log(admin['user_id'], 'cf_batch_delete', 'processed', f'{len(ids)} items')
     return jsonify({'success': True, 'deleted': len(ids)})
 
@@ -340,13 +340,13 @@ def ai_cover():
 def get_processed(pid):
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    row = conn.execute(
-        """SELECT p.*, r.title as raw_title, r.source_url, r.content_text as raw_text
-           FROM processed_contents p LEFT JOIN raw_contents r ON p.raw_id=r.id
-           WHERE p.id=?""",
-        (pid,)
-    ).fetchone()
+    with _get_db() as conn:
+        row = conn.execute(
+            """SELECT p.*, r.title as raw_title, r.source_url, r.content_text as raw_text
+               FROM processed_contents p LEFT JOIN raw_contents r ON p.raw_id=r.id
+               WHERE p.id=?""",
+            (pid,)
+        ).fetchone()
     if not row:
         return jsonify({'success': False, 'error': _('Does not exist')})
     return jsonify({'success': True, 'data': dict(row)})
@@ -366,9 +366,9 @@ def update_processed(pid):
             vals.append(d[k])
     if sets:
         vals.append(pid)
-        conn = _get_db()
-        conn.execute(f"UPDATE processed_contents SET {', '.join(sets)} WHERE id=?", vals)
-        conn.commit()
+        with _get_db() as conn:
+            conn.execute(f"UPDATE processed_contents SET {', '.join(sets)} WHERE id=?", vals)
+            conn.commit()
     return jsonify({'success': True})
 
 
@@ -389,26 +389,26 @@ def review_content():
     status_map = {'submit_review': 'review', 'approve': 'approved', 'reject': 'rejected', 'back_to_draft': 'draft'}
     target = status_map[action]
 
-    conn = _get_db()
-    pc = conn.execute('SELECT * FROM processed_contents WHERE id=?', (pid,)).fetchone()
-    if not pc:
-        return jsonify({'success': False, 'error': _('Does not exist')})
-    cur = pc['status']
-    valid_transitions = {
-        'draft': ['submit_review', 'publish'],
-        'review': ['approve', 'reject'],
-        'rejected': ['submit_review', 'back_to_draft'],
-        'approved': ['publish', 'back_to_draft'],
-        'published': [],
-    }
-    if action not in valid_transitions.get(cur, []):
-        return jsonify({'success': False, 'error': f'Status {cur} does not allow {action}'})
+    with _get_db() as conn:
+        pc = conn.execute('SELECT * FROM processed_contents WHERE id=?', (pid,)).fetchone()
+        if not pc:
+            return jsonify({'success': False, 'error': _('Does not exist')})
+        cur = pc['status']
+        valid_transitions = {
+            'draft': ['submit_review', 'publish'],
+            'review': ['approve', 'reject'],
+            'rejected': ['submit_review', 'back_to_draft'],
+            'approved': ['publish', 'back_to_draft'],
+            'published': [],
+        }
+        if action not in valid_transitions.get(cur, []):
+            return jsonify({'success': False, 'error': f'Status {cur} does not allow {action}'})
 
-    conn.execute(
-        "UPDATE processed_contents SET status=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?",
-        (target, admin['user_id'], pid)
-    )
-    conn.commit()
+        conn.execute(
+            "UPDATE processed_contents SET status=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?",
+            (target, admin['user_id'], pid)
+        )
+        conn.commit()
 
     action_labels = {'submit_review': _('Submit for Review'), 'approve': _('Approved'), 'reject': _('Reject'), 'back_to_draft': _('Return to draft')}
     _log(admin['user_id'], f'cf_review_{action}', 'processed_content', str(pid),
@@ -430,8 +430,8 @@ def publish():
     if not pid:
         return jsonify({'success': False, 'error': _('Processed_id is required')})
 
-    conn = _get_db()
-    pc = conn.execute('SELECT * FROM processed_contents WHERE id=?', (pid,)).fetchone()
+    with _get_db() as conn:
+        pc = conn.execute('SELECT * FROM processed_contents WHERE id=?', (pid,)).fetchone()
     if not pc:
         return jsonify({'success': False, 'error': _('Processed Content Does Not Exist')})
     if pc['status'] not in ('approved', 'draft'):
@@ -508,10 +508,11 @@ def publish():
             })
             post_id = post.get('id')
 
-        conn.execute(
-            "UPDATE processed_contents SET is_published=1, status='published' WHERE id=?", (pid,)
-        )
-        conn.commit()
+        with _get_db() as conn:
+            conn.execute(
+                "UPDATE processed_contents SET is_published=1, status='published' WHERE id=?", (pid,)
+            )
+            conn.commit()
 
         log_msg = f"Social Media Post: {', '.join(social_platforms)}"
         if post_id: log_msg += f", CMS post_id={post_id}"
@@ -539,14 +540,14 @@ def list_tasks():
     if source_id:
         where.append('t.source_id=?')
         params.append(int(source_id))
-    conn = _get_db()
-    rows = conn.execute(
-        f"""SELECT t.*, s.name as source_name
-            FROM content_tasks t LEFT JOIN content_sources s ON t.source_id=s.id
-            WHERE {" AND ".join(where)}
-            ORDER BY t.id DESC LIMIT ?""",
-        params + [limit]
-    ).fetchall()
+    with _get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT t.*, s.name as source_name
+                FROM content_tasks t LEFT JOIN content_sources s ON t.source_id=s.id
+                WHERE {" AND ".join(where)}
+                ORDER BY t.id DESC LIMIT ?""",
+            params + [limit]
+        ).fetchall()
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
@@ -558,15 +559,15 @@ def list_tasks():
 def stats():
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    source_count = conn.execute('SELECT COUNT(*) FROM content_sources WHERE is_active=1').fetchone()['count']
-    pending = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='pending'").fetchone()['count']
-    processed = conn.execute("SELECT COUNT(*) FROM processed_contents").fetchone()['count']
-    published = conn.execute("SELECT COUNT(*) FROM processed_contents WHERE is_published=1").fetchone()['count']
-    failed = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='failed'").fetchone()['count']
-    recent_sources = conn.execute(
-        'SELECT name, last_crawled_at FROM content_sources ORDER BY last_crawled_at DESC LIMIT 5'
-    ).fetchall()
+    with _get_db() as conn:
+        source_count = conn.execute('SELECT COUNT(*) FROM content_sources WHERE is_active=1').fetchone()['count']
+        pending = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='pending'").fetchone()['count']
+        processed = conn.execute("SELECT COUNT(*) FROM processed_contents").fetchone()['count']
+        published = conn.execute("SELECT COUNT(*) FROM processed_contents WHERE is_published=1").fetchone()['count']
+        failed = conn.execute("SELECT COUNT(*) FROM raw_contents WHERE status='failed'").fetchone()['count']
+        recent_sources = conn.execute(
+            'SELECT name, last_crawled_at FROM content_sources ORDER BY last_crawled_at DESC LIMIT 5'
+        ).fetchall()
     return jsonify({'success': True, 'data': {
         'source_count': source_count, 'pending': pending, 'processed': processed,
         'published': published, 'failed': failed,
@@ -608,9 +609,9 @@ def list_pushed():
 def delete_pushed(push_id):
     admin, err = _require_admin()
     if err: return err
-    conn = _get_db()
-    conn.execute("DELETE FROM skill_pushes WHERE id=?", (push_id,))
-    conn.commit()
+    with _get_db() as conn:
+        conn.execute("DELETE FROM skill_pushes WHERE id=?", (push_id,))
+        conn.commit()
     _log(admin['user_id'], 'cf_skill_delete', 'skill_push', str(push_id))
     return jsonify({'success': True})
 
@@ -697,9 +698,9 @@ def push_processed_to_knowledge():
     if not pid:
         return jsonify({'success': False, 'error': _('Processed_id is required')}), 400
 
-    conn = _get_db()
-    row = conn.execute("SELECT id, title, body, keywords, content_type "
-                       "FROM processed_contents WHERE id=?", (pid,)).fetchone()
+    with _get_db() as conn:
+        row = conn.execute("SELECT id, title, body, keywords, content_type "
+                           "FROM processed_contents WHERE id=?", (pid,)).fetchone()
     if not row:
         return jsonify({'success': False, 'error': _('Processed Content Does Not Exist')}), 404
 
@@ -731,11 +732,11 @@ def cron_tick():
     try:
         now = datetime.now()
         triggered = []
-        conn = _get_db()
-        rows = conn.execute(
-            "SELECT id, name, crawl_interval, last_crawled_at, is_active "
-            "FROM content_sources WHERE is_active=1 AND crawl_interval>0"
-        ).fetchall()
+        with _get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, crawl_interval, last_crawled_at, is_active "
+                "FROM content_sources WHERE is_active=1 AND crawl_interval>0"
+            ).fetchall()
         for r in rows:
             last = r['last_crawled_at']
             last_dt = None
@@ -771,13 +772,13 @@ def list_schedules():
     admin, err = _require_admin()
     if err: return err
 
-    conn = _get_db()
-    rows = conn.execute(
-        "SELECT id, name, source_type, url, crawl_interval, "
-        "is_active, last_crawled_at, auto_publish, skip_review, keywords, max_per_run "
-        "FROM content_sources WHERE is_active = 1 AND crawl_interval > 0 "
-        "ORDER BY name"
-    ).fetchall()
+    with _get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, source_type, url, crawl_interval, "
+            "is_active, last_crawled_at, auto_publish, skip_review, keywords, max_per_run "
+            "FROM content_sources WHERE is_active = 1 AND crawl_interval > 0 "
+            "ORDER BY name"
+        ).fetchall()
     return jsonify({
         'success': True,
         'data': [dict(r) for r in rows]
@@ -790,13 +791,13 @@ def cron_status():
     admin, err = _require_admin()
     if err: return err
 
-    conn = _get_db()
-    rows = conn.execute(
-        "SELECT t.*, s.name as source_name "
-        "FROM content_tasks t LEFT JOIN content_sources s ON t.source_id=s.id "
-        "ORDER BY t.id DESC LIMIT ?",
-        [50]
-    ).fetchall()
+    with _get_db() as conn:
+        rows = conn.execute(
+            "SELECT t.*, s.name as source_name "
+            "FROM content_tasks t LEFT JOIN content_sources s ON t.source_id=s.id "
+            "ORDER BY t.id DESC LIMIT ?",
+            [50]
+        ).fetchall()
     return jsonify({
         'success': True,
         'data': [dict(r) for r in rows]

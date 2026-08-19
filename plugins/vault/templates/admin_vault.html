@@ -4,7 +4,7 @@ window.l_vault = function () {
   document.getElementById('pt').textContent = {{ _('Vault') | tojson }};
   var mc = document.getElementById('mc');
   // iframe 内嵌完整 Vault UI（vault.html + vault.js + 5 子页面），同源加载自动携带 sso_token Cookie
-  mc.innerHTML = '<iframe src="/admin/vault/" style="width:100%;height:calc(100vh - 70px);border:none;background:#050508"></iframe>';
+  mc.innerHTML = '<iframe src="/admin/vault/" style="width:100%;height:calc(100vh - 70px);border:none"></iframe>';
 };
 
 var vaultEchartsOk = typeof echarts !== 'undefined';

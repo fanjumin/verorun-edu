@@ -1,8 +1,39 @@
 /* ══════════════════════════════════════════════════════════════
    Vault 2.0 — Plugin Styles
-   Uses VeroRun design-system.css variables exclusively.
-   No hardcoded color values.
+   V20260819: inherit Admin three-theme system (themes.css dark/light/slate).
+   design-system.css is no longer loaded; compatibility aliases below map
+   legacy design-system variable names onto the Admin theme variables.
    ══════════════════════════════════════════════════════════════ */
+
+/* ── Legacy design-system → Admin theme compatibility aliases ── */
+:root {
+  --bg-card: var(--card);
+  --text-dim: var(--muted);
+  --text-muted: var(--dim);
+  --border-light: var(--border);
+  --blue: var(--accent);
+  --indigo: var(--accent2);
+  --rose: var(--danger);
+  --green: var(--success);
+  --gold: var(--warn);
+  --font-en: 'Inter', 'Satoshi', system-ui, -apple-system, sans-serif;
+  --font-cn: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --radius-sm: 6px;
+  --radius-full: 9999px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --bg-overlay: rgba(0,0,0,0.7);
+  --z-toast: 3000;
+  --z-modal: 2000;
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+  --gradient-neon: linear-gradient(135deg, var(--accent3), var(--accent));
+}
+
+body {
+  font-family: var(--font-cn);
+  background: var(--bg);
+  color: var(--text);
+}
 
 /* ── Dashboard Layout ── */
 .vault-dashboard {
@@ -114,8 +145,8 @@
   background: var(--indigo);
   color: #fff;
 }
-.vault-dashboard .btn-primary:hover { background: #4f46e5; }
-.vault-dashboard .btn-primary:disabled { background: #4338ca; opacity: 0.5; cursor: not-allowed; }
+.vault-dashboard .btn-primary:hover { background: var(--indigo); filter: brightness(1.15); }
+.vault-dashboard .btn-primary:disabled { background: var(--indigo); opacity: 0.5; cursor: not-allowed; }
 
 .vault-dashboard .btn-outline {
   background: transparent;
@@ -131,7 +162,7 @@
   background: var(--rose);
   color: #fff;
 }
-.vault-dashboard .btn-danger:hover { background: #e11d48; }
+.vault-dashboard .btn-danger:hover { background: var(--rose); filter: brightness(1.15); }
 
 .vault-dashboard .btn-sm { padding: 4px 12px; font-size: 0.78rem; }
 .btn-icon { font-size: 1rem; font-weight: 700; }
@@ -217,7 +248,7 @@ td {
 }
 
 tr:last-child td { border-bottom: none; }
-tr:hover td { background: rgba(255,255,255,0.02); }
+tr:hover td { background: var(--hover-bg); }
 
 .actions-col {
   display: flex;
@@ -273,7 +304,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
-  background: #1a1a2e;
+  background: var(--toast-bg);
   color: var(--text);
   padding: 10px 20px;
   border-radius: var(--radius-sm);
@@ -345,7 +376,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   color: var(--text);
 }
 
-.modal-box .btn:hover { background: rgba(255,255,255,0.06); }
+.modal-box .btn:hover { background: var(--hover-bg); }
 
 .modal-box .btn-danger {
   background: var(--rose);
@@ -353,7 +384,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   color: #fff;
 }
 
-.modal-box .btn-danger:hover { background: #e11d48; }
+.modal-box .btn-danger:hover { background: var(--rose); filter: brightness(1.15); }
 
 @keyframes vaultFadeIn {
   from { opacity: 0; }

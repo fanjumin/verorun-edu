@@ -229,7 +229,7 @@ DEFAULT_CHECKS = [
     ('database',       'Database Connection',   'system',    'PostgreSQL connection status, table count, and schema size',  '{"timeout":3}',                                    'critical', 20),
     ('redis',          'Redis Cache',           'system',    'Redis cache service connection status', '{"timeout":3}',                                    'warning', 25),
     ('server_resources','Server Resources',     'system',    'CPU/Memory/Disk usage monitoring',     '{"cpu_threshold":90,"mem_threshold":85,"disk_threshold":85,"timeout":10}', 'warning', 30),
-    ('external_apis',  'External Dependencies', 'external',  'Stock quotes/AI API/Payment dependencies', '{"timeout":10,"endpoints":["https://httpbin.org/get"]}', 'warning', 40),
+    ('external_apis',  'External Dependencies', 'external',  'Stock quotes/AI API/Payment dependencies', '{"timeout":10,"endpoints":[]}', 'warning', 40),
     ('ssl_cert',       'SSL Certificate',       'ssl',       'SSL certificate expiry check for all subdomains', '{"domains":[],"expire_warn_days":30}', 'warning', 50),
     ('workflow_engine','Workflow Engine',       'workflow',  'Cron/Workflow scheduler running status', '{"timeout":5}',                                   'warning', 60),
     ('agent_matrix',   'Agent Matrix',          'agent',     'Primary agent + sub-agent online status','{"timeout":10}',                                   'warning', 70),
@@ -259,6 +259,17 @@ def seed_default_checks():
     with get_db() as conn:
         count = conn.execute('SELECT COUNT(*) as c FROM health_checks').fetchone()['c']
         if count > 0:
+            # 幂等迁移：历史安装的 external_apis 默认端点指向 httpbin.org
+            # （不可靠第三方依赖，与系统端点无关）。仅当 config 仍为旧默认值时替换为空。
+            try:
+                conn.execute(
+                    "UPDATE health_checks SET config=%s "
+                    "WHERE check_key='external_apis' AND config LIKE %s",
+                    ('{"timeout":10,"endpoints":[]}', '%httpbin%')
+                )
+                conn.commit()
+            except Exception as e:
+                _logger.warning('Failed to migrate external_apis default config: %s', e)
             return
         for ck, name, cat, desc, cfg, sev, sort in DEFAULT_CHECKS:
             conn.execute(

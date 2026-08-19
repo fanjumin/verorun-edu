@@ -2,7 +2,7 @@
 // Rendered by admin SPA via window['l_project_workspace']() on menu click.
 
 window.l_project_workspace = function () {
-  var root = document.getElementById('page-content');
+  var root = document.getElementById('mc');
   if (!root) return;
 
   var currentProjectId = null;
@@ -11,11 +11,11 @@ window.l_project_workspace = function () {
   // -- Helper: render tabs ------------------------------------------------
   function renderTabs(activeTab) {
     var tabs = [
-      {key: 'projects', label: T('admin.tab.projects')},
-      {key: 'documents', label: T('admin.tab.documents')},
-      {key: 'search', label: T('admin.tab.search')},
-      {key: 'qa', label: T('admin.tab.qa')},
-      {key: 'citations', label: T('admin.tab.citations')},
+      {key: 'projects', label: '{{ _('admin.tab.projects') }}'},
+      {key: 'documents', label: '{{ _('admin.tab.documents') }}'},
+      {key: 'search', label: '{{ _('admin.tab.search') }}'},
+      {key: 'qa', label: '{{ _('admin.tab.qa') }}'},
+      {key: 'citations', label: '{{ _('admin.tab.citations') }}'},
     ];
     var html = '<div class="tabs" style="display:flex;gap:4px;margin-bottom:16px">';
     tabs.forEach(function(t) {
@@ -33,7 +33,7 @@ window.l_project_workspace = function () {
 
   // -- Main render --------------------------------------------------------
   function render() {
-    var html = '<div class="card"><div class="card-header">' + T('plugin.name') + '</div><div class="card-body">';
+    var html = '<div class="card"><div class="card-header">' + '{{ _('plugin.name') }}' + '</div><div class="card-body">';
     html += renderTabs(currentTab);
 
     if (currentTab === 'projects') {
@@ -56,15 +56,15 @@ window.l_project_workspace = function () {
   // -- Projects Tab -------------------------------------------------------
   function renderProjects() {
     return '<div style="display:flex;gap:6px;margin-bottom:12px">' +
-      '<button class="btn btn-primary" onclick="window.__pwCreateProject()">' + T('admin.create_project') + '</button>' +
+      '<button class="btn btn-primary" onclick="window.__pwCreateProject()">' + '{{ _('admin.create_project') }}' + '</button>' +
       '</div>' +
       '<table class="table" id="pw-project-table"><thead><tr>' +
-      '<th>' + T('admin.field_name') + '</th><th>' + T('admin.project_desc') + '</th><th>' + T('admin.field_documents') + '</th><th>' + T('admin.members') + '</th><th></th>' +
+      '<th>' + '{{ _('admin.field_name') }}' + '</th><th>' + '{{ _('admin.project_desc') }}' + '</th><th>' + '{{ _('admin.field_documents') }}' + '</th><th>' + '{{ _('admin.members') }}' + '</th><th></th>' +
       '</tr></thead><tbody></tbody></table>';
   }
 
   window.__pwCreateProject = function() {
-    var name = prompt(T('admin.project_name'));
+    var name = prompt('{{ _('admin.project_name') }}');
     if (!name) return;
     fetch('/admin/project_workspace/projects', {
       method: 'POST',
@@ -82,7 +82,7 @@ window.l_project_workspace = function () {
   };
 
   window.__pwDeleteProject = function(projectId) {
-    if (!confirm(T('admin.confirm_delete'))) return;
+    if (!confirm('{{ _('admin.confirm_delete') }}')) return;
     fetch('/admin/project_workspace/projects/' + projectId, {method: 'DELETE'})
     .then(function(r){return r.json();}).then(function(){
       loadTabData('projects');
@@ -93,15 +93,15 @@ window.l_project_workspace = function () {
   function renderDocuments() {
     return '<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">' +
       '<select id="pw-doc-project" class="input" style="width:300px" onchange="window.__pwDocProjectChange()">' +
-      '<option value="">' + T('admin.placeholder_select_project') + '</option>' +
+      '<option value="">' + '{{ _('admin.placeholder_select_project') }}' + '</option>' +
       '</select>' +
       '<input type="file" id="pw-file-upload" style="display:none" onchange="window.__pwUploadFile()"/>' +
-      '<button class="btn" onclick="document.getElementById(\'pw-file-upload\').click()">' + T('admin.upload') + '</button>' +
-      '<input id="pw-doc-search" class="input" placeholder="' + T('admin.search') + '"/>' +
-      '<button class="btn" onclick="window.__pwLoadDocs()">' + T('admin.action_search') + '</button>' +
+      '<button class="btn" onclick="document.getElementById(\'pw-file-upload\').click()">' + '{{ _('admin.upload') }}' + '</button>' +
+      '<input id="pw-doc-search" class="input" placeholder="' + '{{ _('admin.search') }}' + '"/>' +
+      '<button class="btn" onclick="window.__pwLoadDocs()">' + '{{ _('admin.action_search') }}' + '</button>' +
       '</div>' +
       '<table class="table" id="pw-doc-table"><thead><tr>' +
-      '<th>' + T('admin.field_name') + '</th><th>' + T('admin.field_type') + '</th><th>' + T('admin.field_size') + '</th><th>' + T('admin.field_status') + '</th><th>' + T('admin.field_uploaded') + '</th><th></th>' +
+      '<th>' + '{{ _('admin.field_name') }}' + '</th><th>' + '{{ _('admin.field_type') }}' + '</th><th>' + '{{ _('admin.field_size') }}' + '</th><th>' + '{{ _('admin.field_status') }}' + '</th><th>' + '{{ _('admin.field_uploaded') }}' + '</th><th></th>' +
       '</tr></thead><tbody></tbody></table>';
   }
 
@@ -126,7 +126,7 @@ window.l_project_workspace = function () {
   };
 
   window.__pwDeleteDoc = function(docId) {
-    if (!confirm(T('admin.confirm_delete'))) return;
+    if (!confirm('{{ _('admin.confirm_delete') }}')) return;
     fetch('/admin/project_workspace/documents/' + docId, {method: 'DELETE'})
     .then(function(r){return r.json();}).then(function(){
       window.__pwLoadDocs();
@@ -149,13 +149,13 @@ window.l_project_workspace = function () {
   function renderSearch() {
     return '<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">' +
       '<select id="pw-search-project" class="input" style="width:300px">' +
-      '<option value="">' + T('admin.placeholder_select_project') + '</option>' +
+      '<option value="">' + '{{ _('admin.placeholder_select_project') }}' + '</option>' +
       '</select>' +
-      '<label><input type="checkbox" id="pw-cross-project"/> ' + T('admin.cross_project') + '</label>' +
+      '<label><input type="checkbox" id="pw-cross-project"/> ' + '{{ _('admin.cross_project') }}' + '</label>' +
       '</div>' +
       '<div style="display:flex;gap:6px;margin-bottom:12px">' +
-      '<input id="pw-search-query" class="input" style="flex:1" placeholder="' + T('admin.search') + '"/> ' +
-      '<button class="btn btn-primary" onclick="window.__pwDoSearch()">' + T('admin.action_search') + '</button>' +
+      '<input id="pw-search-query" class="input" style="flex:1" placeholder="' + '{{ _('admin.search') }}' + '"/> ' +
+      '<button class="btn btn-primary" onclick="window.__pwDoSearch()">' + '{{ _('admin.action_search') }}' + '</button>' +
       '</div>' +
       '<div id="pw-search-results"></div>';
   }
@@ -171,7 +171,7 @@ window.l_project_workspace = function () {
     .then(function(r){return r.json();}).then(function(data){
       var container = document.getElementById('pw-search-results');
       if (!data.results || !data.results.length) {
-        container.innerHTML = '<p style="color:var(--muted);padding:20px">' + T('admin.qa_no_results') + '</p>';
+        container.innerHTML = '<p style="color:var(--muted);padding:20px">' + '{{ _('admin.qa_no_results') }}' + '</p>';
         return;
       }
       var html = '<div style="margin-top:12px">';
@@ -191,12 +191,12 @@ window.l_project_workspace = function () {
   function renderQA() {
     return '<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">' +
       '<select id="pw-qa-project" class="input" style="width:300px">' +
-      '<option value="">' + T('admin.placeholder_select_project') + '</option>' +
+      '<option value="">' + '{{ _('admin.placeholder_select_project') }}' + '</option>' +
       '</select>' +
       '</div>' +
       '<div style="display:flex;gap:6px;margin-bottom:12px">' +
-      '<input id="pw-qa-query" class="input" style="flex:1" placeholder="' + T('admin.qa_ask') + '"/> ' +
-      '<button class="btn btn-primary" onclick="window.__pwDoQA()">' + T('admin.qa_submit') + '</button>' +
+      '<input id="pw-qa-query" class="input" style="flex:1" placeholder="' + '{{ _('admin.qa_ask') }}' + '"/> ' +
+      '<button class="btn btn-primary" onclick="window.__pwDoQA()">' + '{{ _('admin.qa_submit') }}' + '</button>' +
       '</div>' +
       '<div id="pw-qa-answer"></div>' +
       '<div id="pw-qa-history" style="margin-top:20px"></div>';
@@ -206,19 +206,19 @@ window.l_project_workspace = function () {
     var projectId = document.getElementById('pw-qa-project').value;
     var query = document.getElementById('pw-qa-query').value;
     if (!projectId || !query) return;
-    document.getElementById('pw-qa-answer').innerHTML = '<p>' + T('admin.doc_processing') + '</p>';
+    document.getElementById('pw-qa-answer').innerHTML = '<p>' + '{{ _('admin.doc_processing') }}' + '</p>';
     fetch('/admin/project_workspace/qa?q=' + encodeURIComponent(query) +
       '&project_id=' + encodeURIComponent(projectId) + '&top_k=10')
     .then(function(r){return r.json();}).then(function(data){
       var container = document.getElementById('pw-qa-answer');
       if (!data.answer) {
-        container.innerHTML = '<p style="color:var(--muted)">' + T('admin.qa_no_results') + '</p>';
+        container.innerHTML = '<p style="color:var(--muted)">' + '{{ _('admin.qa_no_results') }}' + '</p>';
         return;
       }
       var html = '<div class="card" style="padding:16px;margin-bottom:12px">' +
         '<div style="white-space:pre-wrap">' + esc(data.answer) + '</div>';
       if (data.sources && data.sources.length) {
-        html += '<div style="margin-top:12px;font-size:0.85rem;color:var(--muted)"><strong>' + T('admin.sources') + ':</strong><ul>';
+        html += '<div style="margin-top:12px;font-size:0.85rem;color:var(--muted)"><strong>' + '{{ _('admin.sources') }}' + ':</strong><ul>';
         data.sources.forEach(function(s){
           html += '<li>' + esc(s.filename) + ' (score: ' + (s.similarity || 0).toFixed(3) + ')</li>';
         });
@@ -237,7 +237,7 @@ window.l_project_workspace = function () {
     .then(function(r){return r.json();}).then(function(data){
       var container = document.getElementById('pw-qa-history');
       if (!data.rows || !data.rows.length) return;
-      var html = '<h4 style="margin-bottom:8px">' + T('admin.history') + '</h4>';
+      var html = '<h4 style="margin-bottom:8px">' + '{{ _('admin.history') }}' + '</h4>';
       data.rows.forEach(function(r){
         html += '<div class="card" style="padding:12px;margin-bottom:6px">' +
           '<div><strong>Q:</strong> ' + esc(r.query) + '</div>' +
@@ -253,11 +253,11 @@ window.l_project_workspace = function () {
   function renderCitations() {
     return '<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">' +
       '<select id="pw-cit-project" class="input" style="width:300px">' +
-      '<option value="">' + T('admin.placeholder_select_project') + '</option>' +
+      '<option value="">' + '{{ _('admin.placeholder_select_project') }}' + '</option>' +
       '</select>' +
       '</div>' +
       '<table class="table" id="pw-cit-table"><thead><tr>' +
-      '<th>' + T('admin.field_key') + '</th><th>' + T('admin.field_title') + '</th><th>' + T('admin.field_authors') + '</th><th>' + T('admin.field_year') + '</th><th>' + T('admin.field_document') + '</th>' +
+      '<th>' + '{{ _('admin.field_key') }}' + '</th><th>' + '{{ _('admin.field_title') }}' + '</th><th>' + '{{ _('admin.field_authors') }}' + '</th><th>' + '{{ _('admin.field_year') }}' + '</th><th>' + '{{ _('admin.field_document') }}' + '</th>' +
       '</tr></thead><tbody></tbody></table>';
   }
 
@@ -300,7 +300,7 @@ window.l_project_workspace = function () {
           '<td>' + esc((p.description || '').substring(0, 80)) + '</td>' +
           '<td>' + (p.doc_count || 0) + '</td>' +
           '<td>' + (p.member_count || 0) + '</td>' +
-          '<td><button class="btn btn-danger" onclick="window.__pwDeleteProject(\'' + p.id + '\')">' + T('admin.delete') + '</button></td>';
+          '<td><button class="btn btn-danger" onclick="window.__pwDeleteProject(\'' + p.id + '\')">' + '{{ _('admin.delete') }}' + '</button></td>';
         tb.appendChild(tr);
       });
     });
@@ -312,7 +312,7 @@ window.l_project_workspace = function () {
     .then(function(r){return r.json();}).then(function(data){
       var sel = document.getElementById(selectId);
       if (!sel) return;
-      sel.innerHTML = '<option value="">' + T('admin.placeholder_select_project') + '</option>';
+      sel.innerHTML = '<option value="">' + '{{ _('admin.placeholder_select_project') }}' + '</option>';
       (data.rows || []).forEach(function(p){
         var opt = document.createElement('option');
         opt.value = p.id;
@@ -332,7 +332,7 @@ window.l_project_workspace = function () {
       var tb = document.querySelector('#pw-doc-table tbody');
       tb.innerHTML = '';
       (data.rows || []).forEach(function(d){
-        var statusLabels = { pending: T('doc.status_pending'), processing: T('doc.status_processing'), ready: T('doc.status_ready'), failed: T('doc.status_failed') };
+        var statusLabels = { pending: '{{ _('doc.status_pending') }}', processing: '{{ _('doc.status_processing') }}', ready: '{{ _('doc.status_ready') }}', failed: '{{ _('doc.status_failed') }}' };
         var sizeStr = (d.file_size > 1048576) ? (d.file_size / 1048576).toFixed(1) + ' MB' :
                       (d.file_size > 1024) ? (d.file_size / 1024).toFixed(0) + ' KB' : d.file_size + ' B';
         var tr = document.createElement('tr');
@@ -342,8 +342,8 @@ window.l_project_workspace = function () {
           '<td>' + (statusLabels[d.status] || d.status) + '</td>' +
           '<td>' + (d.uploaded_at || '').substring(0, 10) + '</td>' +
           '<td>' +
-          '<button class="btn" onclick="window.__pwSummarizeDoc(\'' + d.id + '\')" style="margin-right:4px">' + T('admin.action_summarize') + '</button>' +
-          '<button class="btn btn-danger" onclick="window.__pwDeleteDoc(\'' + d.id + '\')">' + T('admin.delete') + '</button></td>';
+          '<button class="btn" onclick="window.__pwSummarizeDoc(\'' + d.id + '\')" style="margin-right:4px">' + '{{ _('admin.action_summarize') }}' + '</button>' +
+          '<button class="btn btn-danger" onclick="window.__pwDeleteDoc(\'' + d.id + '\')">' + '{{ _('admin.delete') }}' + '</button></td>';
         tb.appendChild(tr);
       });
     });

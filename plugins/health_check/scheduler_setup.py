@@ -46,7 +46,7 @@ except ImportError:
 HEALTH_SECRET = os.environ.get('HEALTH_SECRET', '')
 HEALTH_INTERNAL_URL = os.environ.get(
     'HEALTH_INTERNAL_URL',
-    'http://127.0.0.1:8084/admin/health/api/internal/run'
+    'http://127.0.0.1:8085/admin/health/api/internal/run'
 )
 
 SCHEDULES = [
@@ -105,9 +105,25 @@ def seed_health_schedules():
 
     registered = 0
     skipped = 0
+    migrated = 0
 
     for schedule in SCHEDULES:
         name = schedule['name']
+
+        # Build the API call config as target JSON
+        target_config = json.dumps({
+            'url': HEALTH_INTERNAL_URL,
+            'method': 'POST',
+            'headers': {
+                'Content-Type': 'application/json',
+                'X-Health-Secret': HEALTH_SECRET,
+            },
+            'body': {
+                'trigger_type': 'scheduled',
+                'trigger_info': schedule['trigger_info'],
+                'checks': schedule['checks'],
+            },
+        }, ensure_ascii=False)
 
         try:
             with orch_db() as conn:
@@ -115,28 +131,32 @@ def seed_health_schedules():
                 # orchestrator 的 get_db() 返回裸 cursor，其 execute() 返回 None，
                 # 必须先 execute 再 fetchone，不能链式调用。
                 conn.execute(
-                    'SELECT id FROM cron_jobs WHERE name=%s', (name,)
+                    'SELECT id, target_config FROM cron_jobs WHERE name=%s', (name,)
                 )
                 existing = conn.fetchone()
 
                 if existing:
-                    skipped += 1
+                    # 幂等迁移：老库的定时巡检可能仍指向 8084（admin 进程）。
+                    # 统一迁移到 8085（health service 独立进程），保证 admin 宕机时巡检仍可运行。
+                    try:
+                        old_cfg = json.loads(existing['target_config'] or '{}')
+                        old_url = old_cfg.get('url') or ''
+                    except (json.JSONDecodeError, TypeError):
+                        old_url = ''
+                    if old_url and old_url != HEALTH_INTERNAL_URL:
+                        conn.execute(
+                            'UPDATE cron_jobs SET target_config=%s, updated_at=NOW() '
+                            'WHERE id=%s',
+                            (target_config, existing['id'])
+                        )
+                        migrated += 1
+                        _logger.info(
+                            'Migrated schedule "%s" target URL → %s',
+                            name, HEALTH_INTERNAL_URL
+                        )
+                    else:
+                        skipped += 1
                     continue
-
-                # Build the API call config as target JSON
-                target_config = json.dumps({
-                    'url': HEALTH_INTERNAL_URL,
-                    'method': 'POST',
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'X-Health-Secret': HEALTH_SECRET,
-                    },
-                    'body': {
-                        'trigger_type': 'scheduled',
-                        'trigger_info': schedule['trigger_info'],
-                        'checks': schedule['checks'],
-                    },
-                }, ensure_ascii=False)
 
                 # Determine job type and trigger expression
                 if schedule['frequency'] == 'interval':
@@ -171,5 +191,7 @@ def seed_health_schedules():
 
     if registered > 0:
         _logger.info('Registered %d new health check schedules', registered)
+    if migrated > 0:
+        _logger.info('Migrated %d existing schedules to %s', migrated, HEALTH_INTERNAL_URL)
     if skipped > 0:
         _logger.info('%d schedules already exist (skipped)', skipped)

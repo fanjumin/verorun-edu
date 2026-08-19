@@ -29,8 +29,8 @@ except ImportError:
 
 
 class MemoryEnginePlugin(BasePlugin):
-    name = 'Agent Memory & Self-Evolution'
-    version = '1.0.0'
+    name = 'CogEvolution'
+    version = '1.1.0'
     description = 'Hierarchical agent memory, Reflexion-based self-evolution and prompt metrics.'
     author = 'VeroRun'
 
@@ -70,21 +70,41 @@ class MemoryEnginePlugin(BasePlugin):
     def activate(self):
         """Subscribe events, filters and scheduler jobs."""
         from plugin_manager.event_bus import get_event_bus
-        if self._reflexion and AGENT_TASK_COMPLETED:
-            get_event_bus().on(AGENT_TASK_COMPLETED, self._reflexion.on_task_completed)
+        if AGENT_TASK_COMPLETED:
+            if self._reflexion:
+                get_event_bus().on(AGENT_TASK_COMPLETED, self._reflexion.on_task_completed)
+            if self._extractor:
+                get_event_bus().on(AGENT_TASK_COMPLETED, self._on_task_completed)
         if self._injector:
             self._injector.register()
         logger.info('memory_engine activated')
 
+    def _on_task_completed(self, **kwargs):
+        """Route AGENT_TASK_COMPLETED to the memory extractor (mirror of reflexion hook)."""
+        if not self._extractor:
+            return
+        task = kwargs.get('task') or {}
+        result = kwargs.get('result') or {}
+        agent_id = kwargs.get('agent_id') or ''
+        if not agent_id or not task:
+            return
+        self._extractor.submit(task, result, agent_id)
+
     def deactivate(self):
         """Unsubscribe everything (disable path)."""
         from plugin_manager.event_bus import get_event_bus
-        if self._reflexion and AGENT_TASK_COMPLETED:
+        if AGENT_TASK_COMPLETED:
             bus = get_event_bus()
-            try:
-                bus.off(AGENT_TASK_COMPLETED, self._reflexion.on_task_completed)
-            except Exception:
-                pass
+            if self._reflexion:
+                try:
+                    bus.off(AGENT_TASK_COMPLETED, self._reflexion.on_task_completed)
+                except Exception:
+                    pass
+            if self._extractor:
+                try:
+                    bus.off(AGENT_TASK_COMPLETED, self._on_task_completed)
+                except Exception:
+                    pass
         if self._injector:
             self._injector.unregister()
         logger.info('memory_engine deactivated')

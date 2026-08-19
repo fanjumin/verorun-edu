@@ -29,7 +29,7 @@ def _require_admin():
         payload = None
     if not payload or not payload.get('is_admin'):
         return None, jsonify({'ok': False, 'error': 'Requires management permissions'}), 401
-    return payload, None
+    return payload, None, None
 
 
 def admin_required(fn):
