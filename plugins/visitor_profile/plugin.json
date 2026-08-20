@@ -6,7 +6,7 @@
     "required": [],
     "optional": {}
   },
-  "version": "1.3.1",
+  "version": "1.4.1",
   "description": "AI-powered visitor behavior profiling engine with LLM Agent semantic extraction, pgvector storage, and dynamic persona injection",
   "author": "VeroRun",
   "min_app_version": "0.10.0",

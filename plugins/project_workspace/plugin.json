@@ -10,7 +10,7 @@
     ],
     "optional": {}
   },
-  "version": "1.4.3",
+  "version": "1.5.3",
   "description": "AI-powered project workspace with project isolation, document RAG, intelligent search, and research assistant for organizations of all sizes",
   "author": "VeroRun",
   "min_app_version": "0.10.0",

@@ -8,7 +8,7 @@
     ],
     "optional": {}
   },
-  "version": "1.8.1",
+  "version": "1.9.1",
   "description": "System Health Check — Automated health monitoring + alerting + trend analysis",
   "author": "VeroRun",
   "min_app_version": "0.40.0",
