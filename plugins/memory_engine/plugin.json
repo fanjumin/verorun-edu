@@ -12,17 +12,15 @@
   "min_app_version": "0.10.0",
   "category": "system",
   "icon": "database",
-  "icon_url": "https://cdn.verorun.com/plugins/memory_engine/icon.png",
+  "icon_url": "",
   "tags": [
     "memory",
     "agent",
     "ai",
     "reflexion"
   ],
-  "screenshots": [
-    "https://cdn.verorun.com/plugins/memory_engine/screenshot1.png"
-  ],
-  "readme_url": "https://cdn.verorun.com/plugins/memory_engine/README.md",
+  "screenshots": [],
+  "readme_url": "",
   "dependencies": {},
   "config": {
     "embedding_model": "",
