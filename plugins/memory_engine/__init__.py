@@ -13,7 +13,6 @@ import logging
 import os
 
 from plugin_manager.base import BasePlugin
-from plugin_manager.hooks import get_hook_registry
 
 from .models import SCHEMA
 from .prompt_injector import PromptInjector, FILTER_NAME
@@ -51,12 +50,9 @@ class MemoryEnginePlugin(BasePlugin):
                 'kernel patch B missing: EventName.AGENT_TASK_COMPLETED undefined'
             )
             return False
-        # Detect before_prompt_resolve filter point; warn if absent.
-        if 'before_prompt_resolve' not in get_hook_registry()._filters:
-            logger.warning(
-                'before_prompt_resolve filter point not found; '
-                'memory injection inert until patch C is applied'
-            )
+        # before_prompt_resolve 过滤器点由内核 prompt_resolver.resolve() 调用
+        # （agent_matrix/prompt_resolver.py _apply_prompt_filters），
+        # 注入器在 activate() 阶段注册过滤器，此处无需预检。
         self._config = self.get_config_value('config') or {}
         from .services.extractor import MemoryExtractor
         from .services.reflexion import ReflexionService

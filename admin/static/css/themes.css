@@ -37,6 +37,32 @@
   --danger: #f85149;
   --warn: #f0c040;
   --info: #58a6ff;
+
+  /* ── Design-System 兼容变量（workflow-editor 等组件使用，别名映射→三主题自动跟随）── */
+  --bg-deep: var(--bg);
+  --bg-elevated: var(--card);
+  --bg-card: var(--card);
+  --bg-glass: rgba(15,15,26,0.72);
+  --bg-overlay: rgba(0,0,0,0.7);
+  --text-dim: var(--muted);
+  --text-muted: var(--dim);
+  --text-high: var(--text);
+  --indigo: #6366f1;
+  --blue: var(--accent);
+  --violet: var(--accent2);
+  --green: var(--accent3);
+  --gold: var(--warn);
+  --rose: var(--danger);
+  --cyan: var(--info);
+  --orange: #f97316;
+  --radius-sm: 6px;
+  --radius-full: 9999px;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+  --shadow-glow: 0 0 40px rgba(99,102,241,0.15);
+  --font-cn: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  --font-en: 'Inter',system-ui,-apple-system,sans-serif;
 }
 
 /* ── 2. 云霁白（浅色专业风）── */
@@ -73,6 +99,29 @@
   --yellow: #faad14;
   --red: #f53f3f;
   --glass: rgba(255,255,255,0.85);
+
+  /* ── Design-System 兼容变量（workflow-editor 等组件使用，别名映射→三主题自动跟随）── */
+  --bg-deep: var(--bg);
+  --bg-elevated: var(--card);
+  --bg-card: var(--card);
+  --bg-glass: var(--glass);
+  --text-dim: var(--muted);
+  --text-muted: var(--dim);
+  --text-high: var(--text);
+  --indigo: var(--accent);
+  --violet: var(--accent2);
+  --gold: var(--warn);
+  --rose: var(--danger);
+  --cyan: var(--info);
+  --orange: #f97316;
+  --radius-sm: 6px;
+  --radius-full: 9999px;
+  --shadow-sm: 0 2px 8px rgba(15,23,42,0.08);
+  --shadow-md: 0 8px 24px rgba(15,23,42,0.12);
+  --shadow-lg: 0 16px 40px rgba(15,23,42,0.16);
+  --shadow-glow: 0 0 24px rgba(22,119,255,0.18);
+  --font-cn: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  --font-en: 'Inter',system-ui,-apple-system,sans-serif;
 }
 
 /* ── 3. 晨雾灰（中间色调，介于深黑与亮白之间，高对比）── */
@@ -109,6 +158,29 @@
   --yellow: #ffcc66;
   --red: #ff6b66;
   --glass: rgba(84,92,110,0.85);
+
+  /* ── Design-System 兼容变量（workflow-editor 等组件使用，别名映射→三主题自动跟随）── */
+  --bg-deep: var(--bg);
+  --bg-elevated: var(--card);
+  --bg-card: var(--card);
+  --bg-glass: var(--glass);
+  --text-dim: var(--muted);
+  --text-muted: var(--dim);
+  --text-high: var(--text);
+  --indigo: var(--accent);
+  --violet: var(--accent2);
+  --gold: var(--warn);
+  --rose: var(--danger);
+  --cyan: var(--info);
+  --orange: #f97316;
+  --radius-sm: 6px;
+  --radius-full: 9999px;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+  --shadow-glow: 0 0 40px rgba(0,245,255,0.12);
+  --font-cn: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  --font-en: 'Inter',system-ui,-apple-system,sans-serif;
 }
 
 /* ── 主题切换器（顶栏并列 3 个图标按钮，直接点选）── */
