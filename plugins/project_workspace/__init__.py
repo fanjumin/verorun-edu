@@ -36,7 +36,11 @@ class ProjectWorkspacePlugin(BasePlugin):
             return False
 
     def on_enable(self, registry) -> bool:
-        """Wire services."""
+        """Wire services (re-run idempotent migrations to self-heal missing schema)."""
+        try:
+            self.migrate('0.0.0', self.version)
+        except Exception as e:
+            logger.error('schema init failed: %s', e)
         self._config = self.get_config_value('config') or {}
         from .services.doc_processor import DocProcessor
         from .services.retriever import KnowledgeRetriever

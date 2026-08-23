@@ -1,8 +1,12 @@
 CREATE SCHEMA IF NOT EXISTS memory_engine;
 
+-- pgvector 为平台能力（trusted extension）：迁移自建，不依赖部署脚本预建。
+-- 显式 SCHEMA public：迁移执行器已预设 search_path 为插件 schema，若不显式指定，
+-- 扩展会落入插件 schema（其他插件 search_path 不含它 → vector 类型不可见）。
+CREATE EXTENSION IF NOT EXISTS vector SCHEMA public;
+
 SET search_path TO memory_engine, public;
 
--- vector extension is provisioned by deployment (docker image pgvector/pgvector:pg16).
 -- Plugin degrades gracefully to keyword search when the column is not usable.
 CREATE TABLE IF NOT EXISTS memories (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

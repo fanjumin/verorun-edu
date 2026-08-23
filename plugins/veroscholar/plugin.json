@@ -1,0 +1,180 @@
+{
+  "identifier": "veroscholar",
+  "name": "VeroScholar",
+  "name_i18n_key": "plugin.veroscholar.name",
+  "version": "1.0.3",
+  "description": "科研全流程智能助手 — 选题 · 文献 · 写作 · 审稿",
+  "author": "VeroRun",
+  "min_app_version": "0.58.0",
+  "category": "ai_agent",
+  "icon": "graduation-cap",
+  "icon_url": "",
+  "tagline": "从选题到投稿，AI 赋能科研全流程",
+  "tagline_i18n_key": "plugin.veroscholar.tagline",
+  "tags": [
+    "科研",
+    "学术",
+    "文献",
+    "AI"
+  ],
+  "recommends": {
+    "project_workspace": ">=1.0.0"
+  },
+  "python_dependencies": {
+    "required": [
+      "feedparser"
+    ],
+    "optional": {}
+  },
+  "permissions": [
+    "network:request",
+    "api:read",
+    "api:write"
+  ],
+  "hooks": {
+    "provides": [
+      "veroscholar.search",
+      "veroscholar.annotate"
+    ],
+    "listens": []
+  },
+  "agents": [
+    {
+      "name": "Literature Review Agent",
+      "identifier": "veroscholar_lit_review",
+      "role_type": "sub",
+      "domain": "academic_research",
+      "prompt_file": "agents/lit_review_prompt.md",
+      "model_policy": {
+        "strategy": "tier",
+        "tier": "high",
+        "allow_user_override": true,
+        "fallback": "inherit"
+      },
+      "capabilities": [
+        "lit.search",
+        "lit.summarize",
+        "lit.classify",
+        "citation.analysis"
+      ],
+      "enabled_by_default": true
+    },
+    {
+      "name": "Experiment Designer",
+      "identifier": "veroscholar_exp_designer",
+      "role_type": "sub",
+      "domain": "experimental_design",
+      "prompt_file": "agents/exp_designer_prompt.md",
+      "model_policy": {
+        "strategy": "tier",
+        "tier": "high",
+        "allow_user_override": true,
+        "fallback": "inherit"
+      },
+      "capabilities": [
+        "exp.hypothesis",
+        "exp.methodology",
+        "exp.validation"
+      ],
+      "enabled_by_default": true
+    },
+    {
+      "name": "Paper Writer",
+      "identifier": "veroscholar_paper_writer",
+      "role_type": "sub",
+      "domain": "academic_writing",
+      "prompt_file": "agents/paper_writer_prompt.md",
+      "model_policy": {
+        "strategy": "tier",
+        "tier": "standard",
+        "allow_user_override": true,
+        "fallback": "inherit"
+      },
+      "capabilities": [
+        "writing.introduction",
+        "writing.related_work",
+        "writing.conclusion",
+        "writing.abstract"
+      ],
+      "enabled_by_default": true
+    }
+  ],
+  "menu": {
+    "group": "AI & Content",
+    "items": [
+      {
+        "key": "veroscholar",
+        "icon": "knowledge",
+        "label": "VeroScholar",
+        "label_i18n_key": "menu.veroscholar"
+      }
+    ]
+  },
+  "dashboard": {
+    "stats": [
+      {
+        "key": "total_papers",
+        "title": "总论文数",
+        "type": "counter"
+      },
+      {
+        "key": "total_notes",
+        "title": "总笔记数",
+        "type": "counter"
+      },
+      {
+        "key": "total_projects",
+        "title": "研究项目数",
+        "type": "counter"
+      },
+      {
+        "key": "searches_24h",
+        "title": "24h 检索次数",
+        "type": "counter"
+      }
+    ]
+  },
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "semantic_scholar_api_key": {
+        "title": "Semantic Scholar API Key",
+        "type": "string",
+        "description": "可选，免费注册；用于提高语义检索速率限制"
+      },
+      "openalex_api_key": {
+        "title": "OpenAlex API Key",
+        "type": "string",
+        "description": "可选；用于提高 OpenAlex 请求限额"
+      },
+      "default_search_limit": {
+        "title": "默认检索条数",
+        "type": "integer",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 100
+      },
+      "arxiv_enabled": {
+        "title": "启用 arXiv 数据源",
+        "type": "boolean",
+        "default": true
+      },
+      "semantic_enabled": {
+        "title": "启用 Semantic Scholar 数据源",
+        "type": "boolean",
+        "default": true
+      },
+      "openalex_enabled": {
+        "title": "启用 OpenAlex 数据源",
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "config": {
+    "default_search_limit": 30,
+    "arxiv_enabled": true,
+    "semantic_enabled": true,
+    "openalex_enabled": true
+  }
+}

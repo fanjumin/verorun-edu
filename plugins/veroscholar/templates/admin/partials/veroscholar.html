@@ -1,0 +1,27 @@
+// VeroScholar 内联渲染（Phase 2 通道1：l_<key>() 优先，替代 embed_url iframe 弃用路径）
+// 裸 JS partial：位于 admin.html 大 script 块内（icons.html 开启、tail.html 闭合），样式经 JS 注入。
+(function(){
+  if(document.getElementById('vsInlineStyle'))return;
+  var st=document.createElement('style');st.id='vsInlineStyle';
+  st.textContent='.vs-hub{display:flex;flex-direction:column;height:calc(100vh - 70px);background:var(--bg)}.vs-hub-tabs{display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--card);flex-shrink:0}.vs-hub-tab{border:1px solid var(--border);background:transparent;color:var(--muted);padding:8px 18px;border-radius:var(--radius,8px);cursor:pointer;font-size:13px;font-weight:500;transition:all .15s ease}.vs-hub-tab:hover{color:var(--text);border-color:var(--accent)}.vs-hub-tab.active{background:var(--accent);color:#fff;border-color:transparent}.vs-hub-frame{flex:1;width:100%;border:none;background:var(--bg)}';
+  (document.head||document.documentElement).appendChild(st);
+})();
+window.l_veroscholar=function(){
+  document.getElementById("pt").textContent="{{ _('VeroScholar') }}";
+  var h='<div class="vs-hub">';
+  h+='<div class="vs-hub-tabs">';
+  h+='<button type="button" class="vs-hub-tab active" data-src="/admin/veroscholar/dashboard">{{ _('VeroScholar Research Workbench') }}</button>';
+  h+='<button type="button" class="vs-hub-tab" data-src="/admin/veroscholar/search">{{ _('Literature Search') }}</button>';
+  h+='<button type="button" class="vs-hub-tab" data-src="/admin/veroscholar/review">{{ _('Review Generator') }}</button>';
+  h+='</div>';
+  h+='<iframe id="vs-frame" class="vs-hub-frame" title="VeroScholar"></iframe>';
+  h+='</div>';
+  document.getElementById("mc").innerHTML=h;
+  var qp=new URLSearchParams(location.search);
+  var token=(typeof T!=="undefined"&&T)||qp.get("token")||'';
+  var frame=document.getElementById("vs-frame");
+  var tabs=Array.prototype.slice.call(document.querySelectorAll(".vs-hub-tab"));
+  function load(src){frame.src=src+(src.indexOf("?")>=0?"&":"?")+"token="+encodeURIComponent(token)+"&no_lang_switch=1"}
+  tabs.forEach(function(tab){tab.addEventListener("click",function(){tabs.forEach(function(t){t.classList.remove("active")});tab.classList.add("active");load(tab.getAttribute("data-src"))})});
+  if(tabs.length)load(tabs[0].getAttribute("data-src"));
+};

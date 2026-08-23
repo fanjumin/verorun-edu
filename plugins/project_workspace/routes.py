@@ -157,8 +157,9 @@ def list_projects(owner_type=None):
                " AND (p.owner_id = ? OR m.user_id = ?)")
         params = [user_id, status, user_id, user_id]
         if owner_type:
+            # placeholder order: m.user_id, p.status, p.owner_id, p.owner_type, m.user_id
             sql = sql.replace('p.owner_id = ?', 'p.owner_id = ? AND p.owner_type = ?', 1)
-            params.insert(2, owner_type)
+            params = [user_id, status, user_id, owner_type, user_id]
         sql += " ORDER BY p.updated_at DESC"
         rows = conn.execute(sql, params).fetchall()
         return jsonify({'ok': True, 'rows': [dict(r) for r in rows]})

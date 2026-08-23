@@ -247,3 +247,8 @@ your check logic ...: your check logic ...
 确认回滚此修复操作？: 确认回滚此修复操作？
 请求失败: 请求失败
 项修复...: 项修复...
+
+# ── AI 修复界面（从全局迁入的插件专属词条） ──
+'AI Analysis': 'AI分析'
+'AI Analysis in Progress...': 'AI分析中...'
+'Item repair...': '项修复...'

@@ -64,13 +64,34 @@ window.l_project_workspace = function () {
   }
 
   window.__pwCreateProject = function() {
-    var name = prompt('{{ _('admin.project_name') }}');
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.onclick = function(e) { if (e.target === this) overlay.remove(); };
+    overlay.innerHTML = '<div class="modal-box" style="width:440px">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:16px">' + '{{ _('admin.create_project') }}' + '</div>' +
+      '<div class="fl"><label style="min-width:110px">' + '{{ _('admin.project_name') }}' + '</label>' +
+      '<input id="pw-new-name" class="in" style="flex:1"/></div>' +
+      '<div class="fl"><label style="min-width:110px">' + '{{ _('admin.project_desc') }}' + '</label>' +
+      '<input id="pw-new-desc" class="in" style="flex:1"/></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">' +
+      '<button class="btn" onclick="this.closest(\'.modal-overlay\').remove()">' + '{{ _('admin.cancel') }}' + '</button>' +
+      '<button class="btn btn-primary" onclick="window.__pwConfirmCreate()">' + '{{ _('admin.create') }}' + '</button></div></div>';
+    document.body.appendChild(overlay);
+    var input = document.getElementById('pw-new-name');
+    if (input) input.focus();
+  };
+
+  window.__pwConfirmCreate = function() {
+    var name = document.getElementById('pw-new-name').value.trim();
     if (!name) return;
+    var description = document.getElementById('pw-new-desc').value.trim();
     fetch('/admin/project_workspace/projects', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, owner_id: window.__userId || '', description: ''})
+      body: JSON.stringify({name: name, owner_id: window.__userId || '', description: description})
     }).then(function(r){return r.json();}).then(function(data){
+      var overlay = document.querySelector('.modal-overlay');
+      if (overlay) overlay.remove();
       if (data.ok) { loadTabData('projects'); }
     });
   };

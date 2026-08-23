@@ -247,3 +247,8 @@ your check logic ...: your check logic ...
 确认回滚此修复操作？: 确认回滚此修复操作？
 请求失败: 请求失败
 项修复...: 项修复...
+
+# ── AI repair UI (plugin-only strings migrated from global) ──
+'AI Analysis': 'AI Analysis'
+'AI Analysis in Progress...': 'AI Analysis in Progress...'
+'Item repair...': 'Item repair...'
