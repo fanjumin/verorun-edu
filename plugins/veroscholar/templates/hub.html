@@ -1,0 +1,64 @@
+<!-- plugins/veroscholar/templates/hub.html -->
+<!DOCTYPE html>
+<html lang="{{ g.lang_code or 'zh-CN' }}">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>VeroScholar - VeroRun</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<link rel="stylesheet" href="/static/css/themes.css"/>
+<link rel="stylesheet" href="/admin/veroscholar/static/css/veroscholar.css"/>
+<script>
+(function(){
+  var KEY='verorun_admin_theme';
+  function apply(){
+    try{
+      var t=localStorage.getItem(KEY);
+      if(t==='slate'||t==='light'){document.documentElement.setAttribute('data-theme',t);}
+      else if(document.documentElement.hasAttribute('data-theme')){document.documentElement.removeAttribute('data-theme');}
+    }catch(e){}
+  }
+  apply();
+  window.addEventListener('storage',function(e){if(e.key===KEY||e.key===null)apply();});
+  setInterval(apply,1000);
+})();
+</script>
+<style>
+.vs-hub{display:flex;flex-direction:column;height:100vh;background:var(--bg);}
+.vs-hub-tabs{display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-card);flex-shrink:0;}
+.vs-hub-tab{border:1px solid var(--border);background:transparent;color:var(--text-muted);padding:8px 18px;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:500;transition:all .15s ease;}
+.vs-hub-tab:hover{color:var(--text);border-color:var(--accent);}
+.vs-hub-tab.active{background:var(--gradient-primary);color:#fff;border-color:transparent;}
+.vs-hub-frame{flex:1;width:100%;border:none;background:var(--bg);}
+</style>
+</head>
+<body>
+<div class="vs-hub">
+  <div class="vs-hub-tabs">
+    <button type="button" class="vs-hub-tab active" data-src="/admin/veroscholar/dashboard">{{ _('VeroScholar Research Workbench') }}</button>
+    <button type="button" class="vs-hub-tab" data-src="/admin/veroscholar/search">{{ _('Literature Search') }}</button>
+    <button type="button" class="vs-hub-tab" data-src="/admin/veroscholar/review">{{ _('Review Generator') }}</button>
+  </div>
+  <iframe id="vs-frame" class="vs-hub-frame" title="VeroScholar"></iframe>
+</div>
+<script>
+(function () {
+  var qp = new URLSearchParams(window.location.search);
+  var token = qp.get('token') || '';
+  var frame = document.getElementById('vs-frame');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.vs-hub-tab'));
+  function load(src) {
+    frame.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(token);
+  }
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      load(tab.getAttribute('data-src'));
+    });
+  });
+  if (tabs.length) load(tabs[0].getAttribute('data-src'));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!-- plugins/veroscholar/templates/dashboard.html -->
+<!DOCTYPE html>
+<html lang="{{ g.lang_code or 'zh-CN' }}">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{{ _('VeroScholar Research Workbench') }} - VeroRun</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<link rel="stylesheet" href="/static/css/themes.css"/>
+<link rel="stylesheet" href="/admin/veroscholar/static/css/veroscholar.css"/>
+<script>
+(function(){
+  var KEY='verorun_admin_theme';
+  function apply(){
+    try{
+      var t=localStorage.getItem(KEY);
+      if(t==='slate'||t==='light'){document.documentElement.setAttribute('data-theme',t);}
+      else if(document.documentElement.hasAttribute('data-theme')){document.documentElement.removeAttribute('data-theme');}
+    }catch(e){}
+  }
+  apply();
+  window.addEventListener('storage',function(e){if(e.key===KEY||e.key===null)apply();});
+  setInterval(apply,1000);
+})();
+</script>
+<script>
+window.__t = {{ translations|tojson }};
+window.__locale = '{{ g.lang_code or "zh-CN" }}';
+</script>
+</head>
+<body>
+<div class="vs-page">
+  <h2>{{ _('VeroScholar Research Workbench') }}</h2>
+  <div class="vs-sub">{{ _('Research workbench for literature, projects and reviews') }}</div>
+
+  <!-- 统计卡片 -->
+  <div class="vs-stats">
+    <div class="vs-stat-card"><span class="vs-stat-value" id="st-papers">--</span><span class="vs-stat-label">{{ _('Total Papers') }}</span></div>
+    <div class="vs-stat-card"><span class="vs-stat-value" id="st-notes">--</span><span class="vs-stat-label">{{ _('Total Notes') }}</span></div>
+    <div class="vs-stat-card"><span class="vs-stat-value" id="st-projects">--</span><span class="vs-stat-label">{{ _('Research Projects') }}</span></div>
+    <div class="vs-stat-card"><span class="vs-stat-value" id="st-searches">--</span><span class="vs-stat-label">{{ _('24h Searches') }}</span></div>
+  </div>
+
+  <div class="vs-grid-2">
+    <div>
+      <!-- 研究项目 -->
+      <div class="vs-section">
+        <h3>{{ _('Research Projects') }}
+          <button class="btn btn-primary btn-sm" id="btn-new-project">{{ _('New Project') }}</button>
+        </h3>
+        <div id="project-list"></div>
+      </div>
+
+      <!-- 新建项目表单（默认折叠） -->
+      <div class="vs-panel" id="project-form" style="display:none;">
+        <div class="vs-field">
+          <label>{{ _('Project Name') }}</label>
+          <input type="text" id="pf-name" maxlength="255"/>
+        </div>
+        <div class="vs-field">
+          <label>{{ _('Description') }}</label>
+          <textarea id="pf-desc"></textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" id="pf-save">{{ _('Save') }}</button>
+        <button class="btn btn-ghost btn-sm" id="pf-cancel">{{ _('Cancel') }}</button>
+      </div>
+    </div>
+
+    <div>
+      <!-- 最新论文 -->
+      <div class="vs-section">
+        <h3>{{ _('Recent Papers') }}</h3>
+        <div id="recent-papers"></div>
+      </div>
+
+      <!-- 快捷入口 -->
+      <div class="vs-section">
+        <h3>{{ _('Quick Actions') }}</h3>
+        <div class="vs-panel">
+          <a class="btn btn-primary" href="/admin/veroscholar/search" style="margin-right:8px;">{{ _('Search Literature') }}</a>
+          <a class="btn btn-secondary" href="/admin/veroscholar/review">{{ _('Generate Review') }}</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/veroscholar/static/js/veroscholar.js"></script>
+<script>
+(function () {
+  var VS = window.VS;
+
+  function loadStats() {
+    VS.api('/admin/veroscholar/api/v1/stats').then(function (r) {
+      if (r && r.success) {
+        document.getElementById('st-papers').textContent = r.data.total_papers;
+        document.getElementById('st-notes').textContent = r.data.total_notes;
+        document.getElementById('st-projects').textContent = r.data.total_projects;
+        document.getElementById('st-searches').textContent = r.data.searches_24h;
+      }
+    }).catch(function () {});
+  }
+
+  function loadProjects() {
+    VS.api('/admin/veroscholar/api/v1/projects').then(function (r) {
+      if (r && r.success) {
+        VS.renderProjects(document.getElementById('project-list'), r.data, {
+          onOpen: function (pid) { location.href = '/admin/veroscholar/search?project=' + encodeURIComponent(pid); }
+        });
+      }
+    }).catch(function () {});
+  }
+
+  function loadRecent() {
+    VS.api('/admin/veroscholar/api/v1/papers?limit=5').then(function (r) {
+      if (r && r.success) {
+        VS.renderPapers(document.getElementById('recent-papers'), r.data, {
+          onDetail: function (id) { location.href = '/admin/veroscholar/search?paper=' + encodeURIComponent(id); }
+        });
+      }
+    }).catch(function () {});
+  }
+
+  function init() {
+    loadStats();
+    loadProjects();
+    loadRecent();
+
+    var btn = document.getElementById('btn-new-project');
+    var form = document.getElementById('project-form');
+    btn.addEventListener('click', function () { form.style.display = form.style.display === 'none' ? '' : 'none'; });
+    document.getElementById('pf-cancel').addEventListener('click', function () { form.style.display = 'none'; });
+    document.getElementById('pf-save').addEventListener('click', function () {
+      var name = document.getElementById('pf-name').value.trim();
+      if (!name) { VS.toast(VS.t('name_required'), 'error'); return; }
+      VS.api('/admin/veroscholar/api/v1/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name: name, description: document.getElementById('pf-desc').value })
+      }).then(function (r) {
+        if (r.success) {
+          VS.toast(VS.t('saved'), 'success');
+          form.style.display = 'none';
+          document.getElementById('pf-name').value = '';
+          document.getElementById('pf-desc').value = '';
+          loadProjects();
+        } else { VS.toast(r.error || VS.t('failed'), 'error'); }
+      }).catch(function () { VS.toast(VS.t('network_error'), 'error'); });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
