@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VeroScholar 科研工作台插件。
+"""VeroScholar 引源索骥插件。
 
 面向教育版的科研全流程智能助手：多库文献检索（arXiv/Semantic Scholar/OpenAlex）、
 项目-论文管理、论文笔记（含语义向量）、DAG 综述生成工作流。
@@ -51,20 +51,51 @@ class VeroScholarPlugin(BasePlugin):
         return True
 
     def on_enable(self, registry):
-        """启用时执行幂等迁移（表已存在则跳过）。"""
+        """启用时执行幂等迁移（表已存在则跳过）。
+
+        迁移失败不再静默 warning：升级为 error 并暴露到服务日志/健康状态，
+        避免 schema 陈旧时仅 500 而无任何可见告警。
+        迁移成功后注册全文模块钩子（模块 B；失败仅降级不阻断启用）。
+        """
+        ok = False
         try:
-            m.migrate('0.0.0', self.version)
+            ok = m.migrate('0.0.0', self.version)
+            if not ok:
+                _logger.error('veroscholar migration FAILED on enable; schema may be stale')
         except Exception as e:
-            _logger.warning('enable migration warning: %s', e)
+            _logger.error('enable migration exception: %s', e)
+        if ok:
+            try:
+                from .fulltext import register_fulltext_hooks
+                register_fulltext_hooks()
+            except Exception as e:
+                _logger.warning('fulltext hook registration skipped: %s', e)
+            try:
+                # 知识库读向：论文问答合并 project_workspace 检索（方案 §6.2）
+                from .services.kb_sync import register_kb_hooks
+                register_kb_hooks()
+            except Exception as e:
+                _logger.warning('kb sync hook registration skipped: %s', e)
         return True
 
     def register_routes(self):
-        """注册科研工作台 Blueprint。"""
+        """注册引源索骥 Blueprint。"""
         return [veroscholar_bp]
 
     def register_dag_nodes(self):
-        """注册自定义工作流节点：veroscholar_search。"""
-        return get_dag_nodes()
+        """注册自定义工作流节点：veroscholar_search + discovery 节点集。
+
+        discovery 节点（veroscholar_discovery_*）独立于主节点加载，任一
+        节点集导入失败仅降级不影响另一集（discovery_enabled 门禁在节点
+        入口处判断，关闭时零副作用）。
+        """
+        nodes = get_dag_nodes()
+        try:
+            from .discovery import get_discovery_dag_nodes
+            nodes.update(get_discovery_dag_nodes())
+        except Exception as e:
+            _logger.warning('discovery nodes not loaded: %s', e)
+        return nodes
 
     def register_health_checks(self):
         """§12.6 健康检查：veroscholar schema 连通性。"""

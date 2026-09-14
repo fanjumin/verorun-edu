@@ -1,0 +1,67 @@
+{
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "veroscholar_discovery_gen",
+      "name": "Hypothesis Generation",
+      "config": {
+        "num_hypotheses": 5
+      },
+      "position": { "x": 80, "y": 120 }
+    },
+    {
+      "id": "n2",
+      "type": "veroscholar_discovery_evidence",
+      "name": "Evidence Recall",
+      "config": {},
+      "position": { "x": 260, "y": 120 }
+    },
+    {
+      "id": "n3",
+      "type": "veroscholar_discovery_rank",
+      "name": "Hypothesis Ranking",
+      "config": {},
+      "position": { "x": 440, "y": 120 }
+    },
+    {
+      "id": "n4",
+      "type": "veroscholar_discovery_cluster",
+      "name": "Cluster Hypotheses",
+      "config": {},
+      "position": { "x": 620, "y": 120 }
+    },
+    {
+      "id": "n5",
+      "type": "veroscholar_discovery_discuss",
+      "name": "Hypothesis Discussion",
+      "config": {},
+      "position": { "x": 800, "y": 120 }
+    },
+    {
+      "id": "n6",
+      "type": "veroscholar_discovery_judge",
+      "name": "Final Judgment",
+      "config": {},
+      "position": { "x": 980, "y": 120 }
+    },
+    {
+      "id": "n7",
+      "type": "veroscholar_discovery_persist",
+      "name": "Persist Results",
+      "config": {},
+      "position": { "x": 1160, "y": 120 }
+    }
+  ],
+  "edges": [
+    { "from": "n1", "to": "n2" },
+    { "from": "n2", "to": "n3" },
+    { "from": "n3", "to": "n4" },
+    { "from": "n4", "to": "n5" },
+    { "from": "n5", "to": "n6" },
+    { "from": "n6", "to": "n7" }
+  ],
+  "settings": {
+    "timeout_minutes": 60,
+    "max_concurrency": 1
+  }
+}

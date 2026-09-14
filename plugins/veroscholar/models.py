@@ -11,6 +11,7 @@
 import json
 import logging
 import os
+import re
 from contextlib import contextmanager
 
 from plugins._base.db import get_pooled_connection
@@ -167,11 +168,16 @@ def get_paper_by_doi(conn, doi: str) -> dict:
     return dict(row) if row else None
 
 
-def list_papers(conn, limit=50, offset=0, source_db='', year=None, q=''):
-    """论文库列表：支持数据源 / 年份 / 关键词筛选，按被引数降序。"""
+def list_papers(conn, limit=50, offset=0, source_db='', year=None, q='',
+                tag_id=None, status=None):
+    """论文库列表：数据源 / 年份 / 关键词 / 标签 / 阅读状态筛选，按被引数降序。
+
+    ILIKE 由 pg_trgm GIN 索引自动加速（migrations/v1.1.1_lib.sql）。
+    """
     sql = (
         "SELECT id, doi, title, authors, abstract, venue, year,"
-        " citation_count, pdf_url, source_db, external_id, created_at"
+        " citation_count, pdf_url, source_db, external_id, reading_status,"
+        " created_at"
         " FROM papers WHERE 1 = 1"
     )
     args = []
@@ -185,13 +191,21 @@ def list_papers(conn, limit=50, offset=0, source_db='', year=None, q=''):
         sql += " AND (title ILIKE ? OR abstract ILIKE ?)"
         like = f'%{q}%'
         args += [like, like]
+    if tag_id:
+        sql += (" AND EXISTS (SELECT 1 FROM paper_tags pt"
+                " WHERE pt.paper_id = papers.id AND pt.tag_id = ?)")
+        args.append(int(tag_id))
+    if status:
+        sql += " AND reading_status = ?"
+        args.append(status)
     sql += " ORDER BY citation_count DESC NULLS LAST, year DESC NULLS LAST"
     sql += " LIMIT ? OFFSET ?"
     args += [int(limit), int(offset)]
     return [dict(r) for r in conn.execute(sql, tuple(args)).fetchall()]
 
 
-def count_papers(conn, source_db='', year=None, q='') -> int:
+def count_papers(conn, source_db='', year=None, q='', tag_id=None,
+                 status=None) -> int:
     """论文总数（与 list_papers 同条件）。"""
     sql = "SELECT COUNT(*) AS c FROM papers WHERE 1 = 1"
     args = []
@@ -205,8 +219,70 @@ def count_papers(conn, source_db='', year=None, q='') -> int:
         sql += " AND (title ILIKE ? OR abstract ILIKE ?)"
         like = f'%{q}%'
         args += [like, like]
+    if tag_id:
+        sql += (" AND EXISTS (SELECT 1 FROM paper_tags pt"
+                " WHERE pt.paper_id = papers.id AND pt.tag_id = ?)")
+        args.append(int(tag_id))
+    if status:
+        sql += " AND reading_status = ?"
+        args.append(status)
     row = conn.execute(sql, tuple(args)).fetchone()
     return int(row['c'])
+
+
+# ══════════════════════════════════════════════════════════════════
+# 标签
+# ══════════════════════════════════════════════════════════════════
+
+READING_STATUSES = ('unread', 'reading', 'read')
+
+
+def list_tags(conn):
+    """全部标签（按名称排序）。"""
+    return [dict(r) for r in conn.execute(
+        "SELECT id, name FROM tags ORDER BY name").fetchall()]
+
+
+def paper_tags(conn, paper_id):
+    """某论文的标签列表。"""
+    return [dict(r) for r in conn.execute(
+        "SELECT t.id, t.name FROM tags t"
+        " JOIN paper_tags pt ON pt.tag_id = t.id"
+        " WHERE pt.paper_id = ? ORDER BY t.name", (paper_id,)).fetchall()]
+
+
+def add_tag(conn, paper_id, name):
+    """给论文加标签（幂等：同名标签复用，重复关联忽略），返回 tag_id。"""
+    name = name.strip()
+    conn.execute(
+        "INSERT INTO tags (name) VALUES (?)"
+        " ON CONFLICT (name) DO NOTHING", (name,))
+    row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+    if not row:
+        return None
+    tag_id = int(row['id'])
+    conn.execute(
+        "INSERT INTO paper_tags (paper_id, tag_id) VALUES (?, ?)"
+        " ON CONFLICT (paper_id, tag_id) DO NOTHING",
+        (paper_id, tag_id))
+    return tag_id
+
+
+def remove_tag(conn, paper_id, tag_id):
+    """从论文移除标签。"""
+    conn.execute(
+        "DELETE FROM paper_tags WHERE paper_id = ? AND tag_id = ?",
+        (paper_id, tag_id))
+
+
+def set_reading_status(conn, paper_id, status):
+    """更新论文阅读状态；非法状态返回 False。"""
+    if status not in READING_STATUSES:
+        return False
+    conn.execute(
+        "UPDATE papers SET reading_status = ?, updated_at = now()"
+        " WHERE id = ?", (status, paper_id))
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -296,13 +372,23 @@ def list_annotations(conn, paper_id: str):
 # ══════════════════════════════════════════════════════════════════
 
 def create_review(conn, title: str, topic: str, structure, content: str,
-                  paper_ids, created_by) -> str:
+                  paper_ids, created_by, search_strategy=None) -> str:
     """创建综述文档，返回 id。"""
-    row = conn.execute(
-        """INSERT INTO reviews (title, topic, structure, content, paper_ids, created_by)
-           VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
-        (title, topic or '', json.dumps(structure or {}, ensure_ascii=False),
-         content or '', json.dumps(paper_ids or [], ensure_ascii=False), created_by)).fetchone()
+    if search_strategy:
+        row = conn.execute(
+            """INSERT INTO reviews (title, topic, structure, content, paper_ids,
+                                    created_by, search_strategy)
+               VALUES (?, ?, ?, ?, ?, ?, ?::jsonb) RETURNING id""",
+            (title, topic or '', json.dumps(structure or {}, ensure_ascii=False),
+             content or '', json.dumps(paper_ids or [], ensure_ascii=False),
+             created_by,
+             json.dumps(search_strategy, ensure_ascii=False) if isinstance(search_strategy, dict) else search_strategy)).fetchone()
+    else:
+        row = conn.execute(
+            """INSERT INTO reviews (title, topic, structure, content, paper_ids, created_by)
+               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            (title, topic or '', json.dumps(structure or {}, ensure_ascii=False),
+             content or '', json.dumps(paper_ids or [], ensure_ascii=False), created_by)).fetchone()
     return row['id']
 
 
@@ -348,6 +434,14 @@ def log_search(conn, query: str, source_db: str, result_count: int, user_id=None
         (query or '', source_db or '', int(result_count or 0), user_id))
 
 
+def log_search_strategy(conn, strategy: dict, created_by=None) -> str:
+    """记录检索策略并返回 strategy_id。"""
+    row = conn.execute(
+        "INSERT INTO search_strategies (strategy, created_by) VALUES (?, ?) RETURNING id",
+        (json.dumps(strategy, ensure_ascii=False), created_by)).fetchone()
+    return row['id']
+
+
 def get_stats(conn) -> dict:
     """插件仪表盘统计。"""
     stats = {
@@ -369,3 +463,221 @@ def get_stats(conn) -> dict:
     except Exception as e:
         logger.warning('get_stats partial failure: %s', e)
     return stats
+
+
+# ══════════════════════════════════════════════════════════════════
+# 引文导出格式（BibTeX / RIS）— 纯函数，供 routes 层调用
+# ══════════════════════════════════════════════════════════════════
+
+def _parse_authors(authors) -> list:
+    """authors 字段可能是 JSON 字符串或已解析列表 → ['Name1', 'Name2']。"""
+    if authors is None:
+        return []
+    if isinstance(authors, str):
+        try:
+            authors = json.loads(authors)
+        except Exception:
+            return []
+    out = []
+    for a in authors or []:
+        if isinstance(a, dict):
+            name = (a.get('name') or '').strip()
+        else:
+            name = str(a).strip()
+        if name:
+            out.append(name)
+    return out
+
+
+def _bibtex_key(title: str, year) -> str:
+    """由标题前 6 词 + 年份生成 BibTeX 引用键（如 attention-is-all-you-2017）。"""
+    words = re.findall(r'[A-Za-z0-9]+', title.lower())[:6]
+    base = '-'.join(words) or 'paper'
+    return '%s%s' % (base, year or '')
+
+
+# BibTeX 特殊字符单次正则替换：每个匹配独立替换，替换文本不再被二次扫描，
+# 从而避免先转义反斜杠再转义花括号时，把已插入的 \textbackslash{} 括号二次转义。
+_BIBTEX_SPECIAL = re.compile(r'([\\&%#_{}])')
+_BIBTEX_MAP = {
+    '\\': r'\textbackslash{}',
+    '&': r'\&',
+    '%': r'\%',
+    '#': r'\#',
+    '_': r'\_',
+    '{': r'\{',
+    '}': r'\}',
+}
+
+
+def _escape_bibtex(text: str) -> str:
+    """转义 BibTeX 特殊字符；单次替换，避免插入的反斜杠/花括号被二次转义。"""
+    if not text:
+        return ''
+    return _BIBTEX_SPECIAL.sub(lambda m: _BIBTEX_MAP[m.group(1)], text)
+
+
+def _is_preprint(paper: dict) -> bool:
+    """判断论文是否为预印本（arXiv）。"""
+    return (paper.get('source_db') == 'arxiv'
+            or (paper.get('doi') or '').lower().startswith('10.48550/'))
+
+
+def to_bibtex(paper: dict) -> str:
+    """生成论文 BibTeX 条目；无标题返回空串。
+
+    Args:
+        paper: 论文行字典（含 title/authors/year/venue/doi/pdf_url）。
+    """
+    title = (paper.get('title') or '').strip()
+    if not title:
+        return ''
+    authors = _parse_authors(paper.get('authors'))
+    if _is_preprint(paper):
+        eprint = (paper.get('external_id') or '').replace('arXiv:', '').strip() \
+                 or (paper.get('doi') or '').replace('10.48550/arXiv.', '')
+        lines = ['@misc{%s,' % _bibtex_key(title, paper.get('year')),
+                 '  author = {%s},' % (' and '.join(authors) or 'Unknown'),
+                 '  title = {%s},' % _escape_bibtex(title),
+                 '  year = {%s},' % str(paper.get('year') or ''),
+                 '  eprint = {%s},' % _escape_bibtex(eprint),
+                 '  archivePrefix = {arXiv},',
+                 '  doi = {%s},' % (paper.get('doi') or '').strip(),
+                 '  url = {%s},' % (paper.get('pdf_url') or '').strip(),
+                 '}']
+        return '\n'.join(l for l in lines if not l.endswith('{},'))
+    entry = {
+        'author': ' and '.join(authors) or 'Unknown',
+        'title': title,
+        'journal': (paper.get('venue') or '').strip(),
+        'year': str(paper.get('year') or ''),
+        'doi': (paper.get('doi') or '').strip(),
+        'url': (paper.get('pdf_url') or '').strip(),
+    }
+    lines = ['@article{%s,' % _bibtex_key(title, paper.get('year'))]
+    for key in ('author', 'title', 'journal', 'year', 'doi', 'url'):
+        value = entry[key]
+        if value:
+            lines.append('  %s = {%s},' % (key, _escape_bibtex(value)))
+    lines.append('}')
+    return '\n'.join(lines)
+
+
+def to_ris(paper: dict) -> str:
+    """生成论文 RIS 条目；无标题返回空串。"""
+    title = (paper.get('title') or '').strip()
+    if not title:
+        return ''
+    if _is_preprint(paper):
+        lines = ['TY  - RPRT']
+        for name in _parse_authors(paper.get('authors')):
+            lines.append('AU  - ' + name)
+        lines.append('TI  - ' + title)
+        venue = (paper.get('venue') or '').strip()
+        if venue:
+            lines.append('JO  - ' + venue)
+        if paper.get('year'):
+            lines.append('PY  - ' + str(paper.get('year')))
+        lines.append('DB  - arXiv')
+        doi = (paper.get('doi') or '').strip()
+        if doi:
+            lines.append('DO  - ' + doi)
+        pdf = (paper.get('pdf_url') or '').strip()
+        if pdf:
+            lines.append('UR  - ' + pdf)
+        lines.append('ER  - ')
+        return '\n'.join(lines)
+    lines = ['TY  - JOUR']
+    for name in _parse_authors(paper.get('authors')):
+        lines.append('AU  - ' + name)
+    lines.append('TI  - ' + title)
+    venue = (paper.get('venue') or '').strip()
+    if venue:
+        lines.append('JO  - ' + venue)
+    if paper.get('year'):
+        lines.append('PY  - ' + str(paper.get('year')))
+    doi = (paper.get('doi') or '').strip()
+    if doi:
+        lines.append('DO  - ' + doi)
+    pdf = (paper.get('pdf_url') or '').strip()
+    if pdf:
+        lines.append('UR  - ' + pdf)
+    lines.append('ER  - ')
+    return '\n'.join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════
+# AI 辅助数据访问（相关推荐 / 向量回填）
+# ══════════════════════════════════════════════════════════════════
+
+def search_related_papers(conn, vec_literal, exclude_id, limit=5):
+    """按摘要向量余弦相似度返回相关论文（需 papers.embedding 非空）。
+
+    Args:
+        vec_literal: '[0.1,0.2,...]' 向量字符串
+        exclude_id:  排除当前论文 id
+    """
+    sql = (
+        "SELECT id, doi, title, venue, year, citation_count, pdf_url,"
+        "       1 - (embedding <=> ?::vector) AS similarity"
+        " FROM papers"
+        " WHERE embedding IS NOT NULL AND id != ?"
+        " ORDER BY embedding <=> ?::vector"
+        " LIMIT ?"
+    )
+    rows = conn.execute(sql, (vec_literal, exclude_id, vec_literal, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_paper_embedding(conn, paper_id, vec_literal):
+    """回填论文摘要向量（vec_literal 为 '[0.1,...]' 字符串）。"""
+    conn.execute(
+        "UPDATE papers SET embedding = ?::vector, updated_at = now()"
+        " WHERE id = ?", (vec_literal, paper_id))
+
+
+# ══════════════════════════════════════════════════════════════════
+# 模块 B：PDF 全文
+# ══════════════════════════════════════════════════════════════════
+
+def create_fulltext_file(conn, paper_id, filename, size_bytes, sha256,
+                         n_chunks, created_by) -> str:
+    """重复 (paper_id, sha256) 时返回既有记录 id（幂等）。"""
+    row = conn.execute(
+        "SELECT id FROM fulltext_files WHERE paper_id = ? AND sha256 = ? LIMIT 1",
+        (paper_id, sha256)).fetchone()
+    if row:
+        return row['id']
+    row = conn.execute(
+        """INSERT INTO fulltext_files (paper_id, filename, size_bytes, sha256,
+                                       n_chunks, created_by)
+           VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+        (paper_id, filename, int(size_bytes), sha256, int(n_chunks), created_by)
+    ).fetchone()
+    return row['id']
+
+
+def add_fulltext_chunks(conn, file_id, paper_id, chunks: list) -> int:
+    """写入分块（仅在首次解析时调用，幂等上传不重灌块）。"""
+    for seq, c in enumerate(chunks):
+        conn.execute(
+            "INSERT INTO fulltext_chunks (paper_id, file_id, seq, page, content) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (paper_id, file_id, seq, int(c.get('page') or 1), c['content']))
+    return len(chunks)
+
+
+def list_fulltext_chunks(conn, paper_id, limit=50, offset=0) -> list:
+    rows = conn.execute(
+        "SELECT seq, page, content FROM fulltext_chunks "
+        "WHERE paper_id = ? ORDER BY seq LIMIT ? OFFSET ?",
+        (paper_id, int(limit), int(offset))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_fulltext_files(conn, paper_id) -> list:
+    rows = conn.execute(
+        "SELECT id, filename, size_bytes, n_chunks, status, created_at "
+        "FROM fulltext_files WHERE paper_id = ? ORDER BY created_at DESC",
+        (paper_id,)).fetchall()
+    return [dict(r) for r in rows]

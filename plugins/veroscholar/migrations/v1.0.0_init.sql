@@ -1,19 +1,31 @@
 -- plugins/veroscholar/migrations/v1.0.0_init.sql
--- VeroScholar 科研工作台初始 Schema（幂等）
+-- VeroScholar 引源索骥初始 Schema（幂等）
 --
 -- 约定（对齐插件标准 §9.1 单库多 Schema + project_workspace 先例）：
 --   1. 独立 schema `veroscholar`，全部插件数据自包含
---   2. 依赖 pgvector（由部署预置，同 project_workspace 约定）；
---      向量列 embedding vector(1536) 不可用时，应用层降级为关键词检索
+--   2. pgvector 可用性探测式建列：桌面捆绑 PostgreSQL 无 vector 扩展二进制时，
+--      embedding 列与 ivfflat 索引跳过创建，应用层经 services/vector_backend.py
+--      自动降级（T2 pgvector → T1 本地向量 → T0 pg_trgm 关键词），
+--      chat/translate 等纯文本能力不受影响（科研版桌面降级约定）
 --   3. 所有语句 IF NOT EXISTS，可安全重复执行
 --   4. 主库 public 表仅作只读引用，不建外键（避免安装时与主库解耦）
+--
+-- 注意：本文件对已应用过的旧库不会重跑（schema_version 记录）；
+--       新装库（含科研版桌面）按探测结果建列，向后兼容。
 
 CREATE SCHEMA IF NOT EXISTS veroscholar;
 
 -- pgvector 为平台能力（trusted extension）：迁移自建，不依赖部署脚本预建。
 -- 显式 SCHEMA public：迁移执行器已预设 search_path 为插件 schema，若不显式指定，
 -- 扩展会落入插件 schema（其他插件 search_path 不含它 → vector 类型不可见）。
-CREATE EXTENSION IF NOT EXISTS vector SCHEMA public;
+-- 桌面 Windows 捆绑 PG 可能无 vector 二进制：失败时静默降级，不阻断迁移。
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS vector SCHEMA public;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector unavailable, veroscholar degrades to keyword/local tier';
+END
+$$;
 
 SET search_path TO veroscholar, public;
 
@@ -29,7 +41,6 @@ CREATE TABLE IF NOT EXISTS papers (
     citation_count integer NOT NULL DEFAULT 0,
     pdf_url        text,
     metadata       jsonb NOT NULL DEFAULT '{}',       -- 额外字段：keywords, funding 等
-    embedding      vector(1536),                      -- pgvector 向量（语义检索预留）
     source_db      varchar(64) NOT NULL DEFAULT 'unknown',  -- 'arxiv' | 'semantic_scholar' | 'openalex'
     external_id    varchar(256),                      -- 源数据库中的原始 ID
     created_at     timestamptz NOT NULL DEFAULT now(),
@@ -39,8 +50,6 @@ CREATE TABLE IF NOT EXISTS papers (
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
 CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source_db);
-CREATE INDEX IF NOT EXISTS idx_papers_embedding
-    ON papers USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- ------------------- 研究项目表 -------------------
 CREATE TABLE IF NOT EXISTS projects (
@@ -70,14 +79,31 @@ CREATE TABLE IF NOT EXISTS annotations (
     user_id    integer,
     note_type  varchar(32) NOT NULL DEFAULT 'summary',   -- 'summary' | 'critique' | 'methodology' | 'question'
     content    text NOT NULL,
-    embedding  vector(1536),                             -- 语义检索笔记内容
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_annotations_paper ON annotations(paper_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_user ON annotations(user_id);
-CREATE INDEX IF NOT EXISTS idx_annotations_embedding
-    ON annotations USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- ------------------- pgvector 探测式建列（T2 档；桌面缺失时自动跳过） -------------------
+-- vector 扩展可用时补 embedding 列 + ivfflat 索引；不可用时整体跳过，
+-- 应用层经 services/vector_backend.py 走 T1 本地向量 / T0 关键词降级。
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+        ALTER TABLE papers ADD COLUMN IF NOT EXISTS embedding vector(1536);
+        ALTER TABLE annotations ADD COLUMN IF NOT EXISTS embedding vector(1536);
+        CREATE INDEX IF NOT EXISTS idx_papers_embedding
+            ON papers USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+        CREATE INDEX IF NOT EXISTS idx_annotations_embedding
+            ON annotations USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    ELSE
+        RAISE NOTICE 'vector type absent: papers/annotations embedding columns skipped';
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'embedding column bootstrap skipped';
+END
+$$;
 
 -- ------------------- 综述文档表 -------------------
 CREATE TABLE IF NOT EXISTS reviews (

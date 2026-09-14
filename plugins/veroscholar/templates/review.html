@@ -165,7 +165,57 @@ window.__locale = '{{ g.lang_code or "zh-CN" }}';
       box.innerHTML = '<h3 style="margin-top:0;">' + VS.esc(rev.title) + '</h3>' +
         '<div class="vs-sub">' + VS.esc(rev.topic || '') + '</div>' +
         '<div style="margin:10px 0;" class="vs-note-type">' + VS.esc(rev.status || 'draft') + '</div>' +
+        '<div id="rv-verify" style="display:none;margin:10px 0;" class="vs-note-type"></div>' +
         content;
+      verifyReview(id);
+    }).catch(function () {});
+  }
+
+  /** 校验综述引用真实性：权威注册机构在线验真 + 本地库补充，按五态着色展示。 */
+  function verifyReview(id) {
+    var box = document.getElementById('rv-verify');
+    if (!box) { return; }
+    VS.api('/admin/veroscholar/api/v1/reviews/' + encodeURIComponent(id) + '/verify').then(function (r) {
+      if (!r || !r.success) { return; }
+      var d = r.data;
+      var refs = d.references || [];
+      if (!d.total_references && !d.missing_paper_ids.length) { return; }
+      box.style.display = '';
+      var html = '<div class="vs-note-type" style="margin-bottom:8px;font-weight:600;">' +
+        VS.t('ref_check_title') + '</div>';
+      // 引用列表
+      if (refs.length) {
+        html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">' +
+          VS.t('ref_check_total').replace('%d', refs.length) + '</div>';
+        html += '<div style="font-size:12px;line-height:1.8;">';
+        refs.forEach(function (ref) {
+          var status = ref.registry_status || 'offline';
+          var color, label;
+          switch (status) {
+            case 'registered':  color = '#27ae60'; label = VS.t('ref_check_registered'); break;
+            case 'retracted':   color = '#c0392b'; label = VS.t('ref_check_retracted'); break;
+            case 'concern':     color = '#f39c12'; label = VS.t('ref_check_concern'); break;
+            case 'unregistered': color = '#c0392b'; label = VS.t('ref_check_unregistered'); break;
+            default:            color = '#95a5a6'; label = VS.t('ref_check_offline');
+          }
+          html += '<div style="margin:4px 0;padding:4px 6px;border-left:3px solid ' + color + ';background:var(--bg-secondary, #f8f9fa);border-radius:3px;">';
+          html += '<span style="color:' + color + ';font-weight:600;">' + label + '</span>';
+          html += ' <code style="font-size:11px;">' + VS.esc(ref.doi) + '</code>';
+          if (status === 'retracted' && ref.notice_doi) {
+            html += ' <a href="https://doi.org/' + encodeURIComponent(ref.notice_doi) + '" target="_blank" style="color:#c0392b;text-decoration:underline;">' + VS.t('ref_check_notice_link') + '</a>';
+          }
+          html += ' <span style="color:var(--text-secondary);font-size:11px;">' +
+            (ref.in_library ? VS.t('ref_check_in_library') : VS.t('ref_check_not_in_library')) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      // 库内论文缺失
+      if (d.missing_paper_ids && d.missing_paper_ids.length) {
+        html += '<div style="margin-top:8px;font-size:12px;color:#c0392b;">' +
+          VS.t('missing_paper_ids') + ': ' + d.missing_paper_ids.join(', ') + '</div>';
+      }
+      box.innerHTML = html;
     }).catch(function () {});
   }
 

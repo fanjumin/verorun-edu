@@ -1,8 +1,8 @@
 {
   "key": "veroscholar_literature_review",
-  "name": "文献综述生成",
+  "name": "文献综述生成 v5",
   "name_i18n_key": "workflow.veroscholar.lit_review.name",
-  "description": "关键词扩展 → 多库检索 → 去重排序 → 方法分类 → 生成综述 → 通知完成",
+  "description": "多库检索 → 确定性去重排序 → 生成综述 → 通知完成（全自定义节点，数据经 node_*_output 传递）",
   "description_i18n_key": "workflow.veroscholar.lit_review.desc",
   "triggers": [],
   "max_concurrency": 1,
@@ -12,58 +12,39 @@
     "nodes": [
       {
         "id": "n1",
-        "type": "ai_agent",
-        "name": "关键词扩展",
+        "type": "veroscholar_search",
+        "name": "多库文献检索",
         "config": {
-          "agent_type": "system",
-          "prompt": "请将用户输入的科研主题扩展为 3-5 组检索关键词（中英文各一组），以 JSON 数组输出。主题在输入上下文的 context.topic 中。"
+          "sources": ["arxiv", "semantic", "openalex", "openalex_zh"],
+          "limit": 30,
+          "per_source": 8,
+          "keywords_field": "keywords",
+          "output_field": "papers"
         },
         "position": { "x": 100, "y": 100 }
       },
       {
         "id": "n2",
-        "type": "veroscholar_search",
-        "name": "多库文献检索",
+        "type": "veroscholar_dedup",
+        "name": "去重与排序",
         "config": {
-          "sources": ["arxiv", "semantic", "openalex"],
-          "limit": 30,
-          "keywords_field": "keywords",
+          "papers_field": "papers",
           "output_field": "papers"
         },
-        "position": { "x": 320, "y": 100 }
+        "position": { "x": 400, "y": 100 }
       },
       {
         "id": "n3",
-        "type": "ai_process",
-        "name": "去重与排序",
+        "type": "veroscholar_review_gen",
+        "name": "生成综述",
         "config": {
-          "instruction": "对检索到的论文按 DOI 去重，并按被引数与年份综合排序，输出 papers 数组。",
-          "fields": ["papers"]
+          "papers_field": "papers",
+          "max_papers": 20
         },
-        "position": { "x": 540, "y": 100 }
+        "position": { "x": 700, "y": 100 }
       },
       {
         "id": "n4",
-        "type": "ai_process",
-        "name": "方法分类",
-        "config": {
-          "instruction": "将论文按研究方法/技术流派归类，输出 classification 结构（每个类别含论文标题列表）。",
-          "fields": ["papers", "classification"]
-        },
-        "position": { "x": 760, "y": 100 }
-      },
-      {
-        "id": "n5",
-        "type": "ai_agent",
-        "name": "生成综述",
-        "config": {
-          "agent_type": "system",
-          "prompt": "基于输入上下文中的 papers 与 classification，撰写结构化文献综述（背景/技术脉络/方法分类/主要贡献/研究缺口/参考文献），输出 Markdown。"
-        },
-        "position": { "x": 980, "y": 100 }
-      },
-      {
-        "id": "n6",
         "type": "notify",
         "name": "通知完成",
         "config": {
@@ -71,15 +52,13 @@
           "title": "文献综述生成完成",
           "title_i18n_key": "workflow.veroscholar.lit_review.notify"
         },
-        "position": { "x": 1200, "y": 100 }
+        "position": { "x": 1000, "y": 100 }
       }
     ],
     "edges": [
       { "from": "n1", "to": "n2", "condition": "success" },
       { "from": "n2", "to": "n3", "condition": "success" },
-      { "from": "n3", "to": "n4", "condition": "success" },
-      { "from": "n4", "to": "n5", "condition": "success" },
-      { "from": "n5", "to": "n6", "condition": "success" }
+      { "from": "n3", "to": "n4", "condition": "success" }
     ]
   }
 }

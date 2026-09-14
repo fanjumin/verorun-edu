@@ -1,4 +1,4 @@
-/* VeroScholar 科研工作台 — 共享样式（基于 design-system.css 变量） */
+/* VeroScholar 引源索骥 — 共享样式（基于 design-system.css 变量） */
 .vs-page { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
 .vs-page h2 { margin: 0 0 4px; font-size: 20px; color: var(--text-high); }
 .vs-sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
@@ -38,6 +38,12 @@
 .vs-badge-arxiv { background: #b32d2d; color: #fff; }
 .vs-badge-semantic_scholar, .vs-badge-semantic { background: #7c3aed; color: #fff; }
 .vs-badge-openalex { background: #0f766e; color: #fff; }
+.vs-badge-openalex_zh { background: #b45309; color: #fff; }
+.vs-badge-status { background: #e2e8f0; color: #334155; }
+
+.vs-chip { display: inline-block; font-size: 12px; background: var(--border-color); color: var(--text-primary); padding: 3px 10px; border-radius: 20px; margin: 0 6px 6px 0; }
+.vs-chip-x { color: var(--text-secondary); text-decoration: none; margin-left: 4px; font-weight: 700; }
+.vs-chip-x:hover { color: #c0392b; }
 
 .vs-project { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; background: var(--card-bg); }
 .vs-project-name { font-weight: 600; font-size: 14px; color: var(--text-high); }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""VeroScholar 科研工作台 — Flask Blueprint。
+"""VeroScholar 引源索骥 — Flask Blueprint。
 
 提供:
   - 页面路由（iframe 独立页，§12.11）:
-      GET /admin/veroscholar/dashboard   科研工作台总览
+      GET /admin/veroscholar/dashboard   引源索骥总览
       GET /admin/veroscholar/search      文献检索
       GET /admin/veroscholar/review      综述生成器
   - RESTful API（JWT 管理员鉴权）:
@@ -26,6 +26,7 @@ import json
 import os
 import sys
 import threading
+import uuid
 
 from flask import (Blueprint, current_app, g, jsonify, redirect,
                    render_template, request, send_from_directory)
@@ -34,7 +35,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from plugin_manager.logger import get_plugin_logger
 from . import models as m
-from .workflow import run_multi_source_search, trigger_literature_review
+from .workflow import (apply_search_filters, run_multi_source_search,
+                       trigger_literature_review, verify_citations)
+from .services import ai
+from .services import kb_sync
 
 logger = get_plugin_logger('veroscholar')
 
@@ -155,6 +159,13 @@ def check_auth():
         if path.startswith(exempt):
             return None
 
+    # CORS 预检放行：浏览器 preflight（OPTIONS）不携带 Authorization，
+    # 蓝图级 401 会让整个插件的桌面端 API 被 CORS 拦截（表现为"网络不可达"）。
+    # 放行后由 Flask 自动 OPTIONS 200 + Electron onHeadersReceived 注入
+    # Access-Control-Allow-* 头完成预检；真实鉴权仍在同源实际请求上进行。
+    if request.method == 'OPTIONS':
+        return None
+
     from services.jwt_service import validate_token
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not token:
@@ -172,13 +183,37 @@ def check_auth():
     return None
 
 
+def _is_valid_uuid(value) -> bool:
+    """校验字符串是否为合法 UUID（papers/projects/reviews 主键均为 uuid 类型）。"""
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+@veroscholar_bp.before_request
+def validate_uuid_params():
+    """路径中的 uuid 主键前置校验：非法 → 400。
+
+    避免非法 uuid 直接进入 SQL，被 psycopg2 抛 DataError 后兜底成 500
+    并回显底层 SQL 文本（回归测试缺陷③）。
+    """
+    for key in ('paper_id', 'project_id', 'review_id', 'file_id',
+                'run_id', 'hypothesis_id'):
+        val = (request.view_args or {}).get(key)
+        if val is not None and not _is_valid_uuid(val):
+            return jsonify({'success': False, 'error': 'invalid %s' % key}), 400
+    return None
+
+
 # ══════════════════════════════════════════════════════════════════
 # 页面路由（iframe 独立页，§12.11 例外条款）
 # ══════════════════════════════════════════════════════════════════
 
 @veroscholar_bp.route('/dashboard')
 def dashboard_page():
-    """科研工作台总览页。"""
+    """引源索骥总览页。"""
     return render_template('dashboard.html',
                            translations=_load_translations(),
                            g=g)
@@ -225,10 +260,12 @@ def static_files(filename):
 
 @veroscholar_bp.route('/api/v1/papers', methods=['GET'])
 def api_list_papers():
-    """论文库列表（支持 q / source_db / year 筛选）。"""
+    """论文库列表（支持 q / source_db / year / tag / status 筛选）。"""
     q = (request.args.get('q') or '').strip()
     source_db = (request.args.get('source_db') or '').strip()
     year = (request.args.get('year') or '').strip() or None
+    tag_id = (request.args.get('tag') or '').strip() or None
+    status = (request.args.get('status') or '').strip() or None
     limit = int(request.args.get('limit', 50))
     offset = int(request.args.get('offset', 0))
     limit = max(1, min(limit, 100))
@@ -236,12 +273,13 @@ def api_list_papers():
     try:
         with m.get_db() as conn:
             papers = [_paper_out(r) for r in
-                      m.list_papers(conn, limit, offset, source_db, year, q)]
-            total = m.count_papers(conn, source_db, year, q)
+                      m.list_papers(conn, limit, offset, source_db, year, q,
+                                    tag_id, status)]
+            total = m.count_papers(conn, source_db, year, q, tag_id, status)
         return jsonify({'success': True, 'data': papers, 'total': total})
     except Exception as e:
         logger.error('list papers failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/papers/<paper_id>', methods=['GET'])
@@ -260,7 +298,187 @@ def api_paper_detail(paper_id):
         })
     except Exception as e:
         logger.error('paper detail failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/tags', methods=['GET'])
+def api_paper_tags(paper_id):
+    """某论文的标签列表。"""
+    try:
+        with m.get_db() as conn:
+            if not m.get_paper(conn, paper_id):
+                return jsonify({'success': False, 'error': 'Paper not found'}), 404
+            tags = m.paper_tags(conn, paper_id)
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error('paper tags failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/tags', methods=['POST'])
+def api_paper_add_tag(paper_id):
+    """给论文加标签（幂等）。body: {name}"""
+    body = request.get_json(silent=True) or {}
+    name = (body.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'tag name is required'}), 400
+    if len(name) > 64:
+        return jsonify({'success': False, 'error': 'tag name too long'}), 400
+    try:
+        with m.get_db() as conn:
+            if not m.get_paper(conn, paper_id):
+                return jsonify({'success': False, 'error': 'Paper not found'}), 404
+            m.add_tag(conn, paper_id, name)
+            tags = m.paper_tags(conn, paper_id)
+            conn.commit()
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error('paper add tag failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/tags/<int:tag_id>',
+                      methods=['DELETE'])
+def api_paper_remove_tag(paper_id, tag_id):
+    """从论文移除标签。"""
+    try:
+        with m.get_db() as conn:
+            if not m.get_paper(conn, paper_id):
+                return jsonify({'success': False, 'error': 'Paper not found'}), 404
+            m.remove_tag(conn, paper_id, tag_id)
+            tags = m.paper_tags(conn, paper_id)
+            conn.commit()
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error('paper remove tag failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/status', methods=['PATCH'])
+def api_paper_status(paper_id):
+    """更新阅读状态。body: {status: unread|reading|read}"""
+    body = request.get_json(silent=True) or {}
+    status = (body.get('status') or '').strip()
+    try:
+        with m.get_db() as conn:
+            if not m.get_paper(conn, paper_id):
+                return jsonify({'success': False, 'error': 'Paper not found'}), 404
+            if not m.set_reading_status(conn, paper_id, status):
+                return jsonify({'success': False,
+                                'error': 'status must be unread/reading/read'}), 400
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error('paper status failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/tags', methods=['GET'])
+def api_list_tags():
+    """全部标签（供筛选下拉）。"""
+    try:
+        with m.get_db() as conn:
+            tags = m.list_tags(conn)
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error('list tags failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/export', methods=['GET'])
+def api_export_paper(paper_id):
+    """导出论文引用（BibTeX / RIS），供写作引用管理使用。
+
+    请求: GET /api/v1/papers/<id>/export?format=bib|ris  （默认 bib）
+    返回: text/plain 附件（带 Content-Disposition）。
+    """
+    fmt = (request.args.get('format') or 'bib').strip().lower()
+    if fmt not in ('bib', 'ris'):
+        return jsonify({'success': False, 'error': 'format must be bib or ris'}), 400
+    try:
+        with m.get_db() as conn:
+            row = m.get_paper(conn, paper_id)
+            if not row:
+                return jsonify({'success': False, 'error': 'Paper not found'}), 404
+            if fmt == 'bib':
+                text, ext = m.to_bibtex(row), 'bib'
+            else:
+                text, ext = m.to_ris(row), 'ris'
+        if not text:
+            return jsonify({'success': False, 'error': 'Paper has no title'}), 422
+        filename = 'paper-%s.%s' % (paper_id, ext)
+        return current_app.response_class(
+            text, mimetype='text/plain',
+            headers={'Content-Disposition':
+                     'attachment; filename="%s"' % filename})
+    except Exception as e:
+        logger.error('export paper failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/chat', methods=['POST'])
+def api_paper_chat(paper_id):
+    """基于论文摘要 + 笔记的 RAG 问答（防幻觉：仅基于给定材料）。"""
+    body = request.get_json(silent=True) or {}
+    question = (body.get('question') or '').strip()
+    if not question:
+        return jsonify({'success': False, 'error': 'question is required'}), 400
+    try:
+        with m.get_db() as conn:
+            answer = ai.chat_answer(conn, paper_id, question)
+            conn.commit()
+        # 认知闭环通道二：论文问答直连路径显式回流（substrate 未启用时自动停用）
+        try:
+            kb_sync.emit_task_curation(
+                user_id=_current_user_id(), domain_id='veroscholar.qa',
+                content='论文问答 Q：%s\nA：%s' % (question[:600], str(answer)[:1500]),
+                record_type='fact', source_id=paper_id)
+        except Exception:
+            pass
+        return jsonify({'success': True, 'data': {'answer': answer}})
+    except RuntimeError as e:
+        return jsonify({'success': False, 'error': str(e)}), 503
+    except Exception as e:
+        logger.error('paper chat failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/translate', methods=['POST'])
+def api_paper_translate(paper_id):
+    """翻译论文摘要（body.target_lang: zh|en，默认 zh）。"""
+    body = request.get_json(silent=True) or {}
+    target_lang = (body.get('target_lang') or 'zh').strip()
+    if target_lang not in ('zh', 'en'):
+        target_lang = 'zh'
+    try:
+        with m.get_db() as conn:
+            translated = ai.translate(conn, paper_id, target_lang)
+            conn.commit()
+        return jsonify({'success': True, 'data': {'translation': translated}})
+    except RuntimeError as e:
+        return jsonify({'success': False, 'error': str(e)}), 503
+    except Exception as e:
+        logger.error('paper translate failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/papers/<paper_id>/related', methods=['GET'])
+def api_paper_related(paper_id):
+    """相关论文推荐（向量三档降级：pgvector → 本地向量 → pg_trgm 关键词）。"""
+    try:
+        limit = min(max(int(request.args.get('limit') or 5), 1), 20)
+    except Exception:
+        limit = 5
+    try:
+        with m.get_db() as conn:
+            related = ai.related_papers(conn, paper_id, limit)
+            conn.commit()
+        return jsonify({'success': True, 'data': related})
+    except RuntimeError as e:
+        return jsonify({'success': False, 'error': str(e)}), 503
+    except Exception as e:
+        logger.error('paper related failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -279,18 +497,58 @@ def api_search():
     limit = max(5, min(limit, 100))
     sources = body.get('sources')
 
+    # 解析过滤参数
+    filters = {}
+    for k in ('year_from', 'year_to', 'min_citations'):
+        if body.get(k) is not None:
+            try:
+                filters[k] = int(body[k])
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'error': '%s must be an integer' % k}), 400
+    if body.get('venue'):
+        filters['venue'] = str(body['venue']).strip()
+
     try:
         papers, errors = run_multi_source_search(
             keywords, sources=sources, limit=limit, user_id=_current_user_id())
-        return jsonify({
+        # 应用后置过滤
+        if filters:
+            papers = apply_search_filters(papers, filters)
+        # 落库检索策略（尽力而为）
+        strategy_id = None
+        try:
+            with m.get_db() as conn:
+                strategy_id = m.log_search_strategy(conn, {
+                    'keywords': keywords, 'sources': sources, 'limit': limit,
+                    'filters': filters, 'result_count': len(papers),
+                }, _current_user_id())
+                conn.commit()
+        except Exception as e:
+            logger.error('log search strategy failed: %s', e)
+        # 认知闭环通道二 + 论文知识同步（substrate/workspace 未启用时自动停用）
+        try:
+            kb_sync.emit_task_curation(
+                user_id=_current_user_id(), domain_id='veroscholar.literature',
+                content='多库检索「%s」命中 %d 篇（源：%s）'
+                        % (keywords[:300], len(papers),
+                           ','.join((sources or []) if isinstance(sources, list) else ['auto'])),
+                record_type='fact', source_id=strategy_id,
+                keywords=[w.strip() for w in keywords.split(';') if w.strip()][:8])
+        except Exception:
+            pass
+        # 返回结果
+        ret = {
             'success': True,
             'data': papers,
             'count': len(papers),
             'errors': errors,
-        })
+        }
+        if strategy_id is not None:
+            ret['strategy_id'] = strategy_id
+        return jsonify(ret)
     except Exception as e:
         logger.error('multi source search failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -315,18 +573,36 @@ def api_add_annotation(paper_id):
                 return jsonify({'success': False, 'error': 'Paper not found'}), 404
             ann_id = m.add_annotation(
                 conn, paper_id, _current_user_id(), note_type, content)
+            # 知识库写向：笔记追加到论文同步文档（同事务，尽力而为）
+            kb_sync.sync_annotation(conn, row,
+                                    {'id': ann_id, 'note_type': note_type,
+                                     'content': content},
+                                    _current_user_id())
             conn.commit()
     except Exception as e:
         logger.error('add annotation failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
-    # 后台向量化笔记内容（失败静默降级，不影响主流程）
+    # 认知闭环通道二：笔记显式回流（substrate 未启用时自动停用）
+    try:
+        kb_sync.emit_task_curation(
+            user_id=_current_user_id(), domain_id='veroscholar.notes',
+            content='论文笔记[%s]：%s' % (note_type, content[:1200]),
+            record_type='fact', source_id=str(ann_id))
+    except Exception:
+        pass
+
+    # 后台向量化笔记内容（失败静默降级，不影响主流程；
+    # 无 pgvector 的桌面库自动跳过 — vector_backend 选档）
     def _bg_embed():
         try:
             vec = _embed_text(content)
             if not vec:
                 return
+            from .services import vector_backend
             with m.get_db() as conn:
+                if vector_backend.detect_backend(conn) != 'pgvector':
+                    return
                 conn.execute(
                     "UPDATE annotations SET embedding = ?::vector WHERE id = ?",
                     (vec, ann_id))
@@ -353,7 +629,7 @@ def api_list_projects():
         return jsonify({'success': True, 'data': projects})
     except Exception as e:
         logger.error('list projects failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/projects', methods=['POST'])
@@ -371,7 +647,7 @@ def api_create_project():
         return jsonify({'success': True, 'id': pid})
     except Exception as e:
         logger.error('create project failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/projects/<project_id>', methods=['GET'])
@@ -389,7 +665,7 @@ def api_project_detail(project_id):
         return jsonify({'success': True, 'data': project, 'papers': papers})
     except Exception as e:
         logger.error('project detail failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/projects/<project_id>/papers', methods=['POST'])
@@ -399,18 +675,23 @@ def api_add_project_paper(project_id):
     paper_id = (body.get('paper_id') or '').strip()
     if not paper_id:
         return jsonify({'success': False, 'error': 'paper_id is required'}), 400
+    if not _is_valid_uuid(paper_id):
+        return jsonify({'success': False, 'error': 'invalid paper_id'}), 400
     try:
         with m.get_db() as conn:
             if not m.get_project(conn, project_id):
                 return jsonify({'success': False, 'error': 'Project not found'}), 404
-            if not m.get_paper(conn, paper_id):
+            paper = m.get_paper(conn, paper_id)
+            if not paper:
                 return jsonify({'success': False, 'error': 'Paper not found'}), 404
             m.add_paper_to_project(conn, project_id, paper_id)
+            # 知识库写向：入库项目 = 用户策展信号，同步到 project_workspace（同事务）
+            kb_sync.sync_paper(conn, paper, _current_user_id())
             conn.commit()
         return jsonify({'success': True})
     except Exception as e:
         logger.error('add paper to project failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -426,7 +707,7 @@ def api_list_reviews():
         return jsonify({'success': True, 'data': reviews})
     except Exception as e:
         logger.error('list reviews failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/reviews/<review_id>', methods=['GET'])
@@ -442,7 +723,22 @@ def api_review_detail(review_id):
         return jsonify({'success': True, 'data': review})
     except Exception as e:
         logger.error('review detail failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@veroscholar_bp.route('/api/v1/reviews/<review_id>/verify', methods=['GET'])
+def api_verify_review(review_id):
+    """校验综述引用的真实性（DOI 反查论文库，标记可能幻觉的引用）。"""
+    try:
+        with m.get_db() as conn:
+            review = m.get_review(conn, review_id)
+            if not review:
+                return jsonify({'success': False, 'error': 'Review not found'}), 404
+            report = verify_citations(conn, review)
+        return jsonify({'success': True, 'data': report})
+    except Exception as e:
+        logger.error('verify review failed: %s', e)
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/reviews', methods=['POST'])
@@ -457,12 +753,17 @@ def api_create_review():
             rid = m.create_review(
                 conn, title, (body.get('topic') or '').strip(),
                 body.get('structure'), '', body.get('paper_ids') or [],
-                _current_user_id())
+                _current_user_id(), search_strategy=body.get('search_strategy'))
+            # 知识库写向：综述骨架同步到 project_workspace（同事务，尽力而为）
+            kb_sync.sync_review(conn, {'id': rid, 'title': title,
+                                       'topic': body.get('topic') or '',
+                                       'content': '', 'status': 'draft'},
+                                _current_user_id())
             conn.commit()
         return jsonify({'success': True, 'id': rid})
     except Exception as e:
         logger.error('create review failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -489,10 +790,20 @@ def api_run_workflow():
         instance_id = trigger_literature_review(
             engine, topic, _current_user_id(),
             keywords=(body.get('keywords') or '').strip())
+        # 认知闭环通道二：综述任务触发直连路径回流（终稿落库时另有 review_gen 节点回流）
+        try:
+            kb_sync.emit_task_curation(
+                user_id=_current_user_id(), domain_id='veroscholar.review',
+                content='触发综述工作流「%s」（关键词：%s）'
+                        % (topic[:300], (body.get('keywords') or '')[:200]),
+                record_type='fact', source_id=str(instance_id),
+                keywords=[w.strip() for w in (body.get('keywords') or '').split(';') if w.strip()][:8])
+        except Exception:
+            pass
         return jsonify({'success': True, 'instance_id': instance_id})
     except Exception as e:
         logger.error('run literature review workflow failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @veroscholar_bp.route('/api/v1/workflow/instances/<int:instance_id>', methods=['GET'])
@@ -511,7 +822,7 @@ def api_workflow_instance(instance_id):
         })
     except Exception as e:
         logger.error('workflow instance query failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -527,4 +838,13 @@ def api_stats():
         return jsonify({'success': True, 'data': stats})
     except Exception as e:
         logger.error('stats failed: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+# ── 模块 B 路由注册（继承本蓝图鉴权/校验）──
+from .fulltext.routes import register_fulltext_routes
+register_fulltext_routes(veroscholar_bp)
+
+# ── Discovery Engine 路由注册（继承本蓝图鉴权/校验）──
+from .discovery import register_discovery_routes
+register_discovery_routes(veroscholar_bp)

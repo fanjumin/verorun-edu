@@ -2,15 +2,16 @@
   "identifier": "veroscholar",
   "name": "VeroScholar",
   "name_i18n_key": "plugin.veroscholar.name",
-  "version": "1.1.3",
+  "version": "1.11.3",
   "description": "科研全流程智能助手 — 选题 · 文献 · 写作 · 审稿",
   "author": "VeroRun",
-  "min_app_version": "0.58.0",
+  "min_app_version": "0.10.0",
   "category": "ai_agent",
   "icon": "graduation-cap",
   "icon_url": "",
   "tagline": "从选题到投稿，AI 赋能科研全流程",
   "tagline_i18n_key": "plugin.veroscholar.tagline",
+  "tagline_subtitle": "文献检索 · 知识库 · 综述生成 · 3 个子 Agent",
   "tags": [
     "科研",
     "学术",
@@ -22,7 +23,8 @@
   },
   "python_dependencies": {
     "required": [
-      "feedparser"
+      "feedparser",
+      "pypdf"
     ],
     "optional": {}
   },
@@ -43,14 +45,26 @@
     "lit.search",
     "lit.summarize",
     "lit.classify",
+    "lit.qa",
+    "lit.translate",
+    "lit.recommend",
     "citation.analysis",
+    "citation.verify",
+    "citation.export",
     "exp.hypothesis",
     "exp.methodology",
     "exp.validation",
     "writing.introduction",
     "writing.related_work",
     "writing.conclusion",
-    "writing.abstract"
+    "writing.abstract",
+    "discovery.generate",
+    "discovery.evidence",
+    "discovery.rank",
+    "discovery.cluster",
+    "discovery.discuss",
+    "discovery.judge",
+    "discovery.persist"
   ],
   "menu": {
     "group": "AI & Content",
@@ -121,6 +135,36 @@
         "title": "启用 OpenAlex 数据源",
         "type": "boolean",
         "default": true
+      },
+      "zh_enabled": {
+        "title": "启用中文文献源（OpenAlex 中文作品）",
+        "type": "boolean",
+        "default": true
+      },
+      "discovery_enabled": {
+        "title": "启用假设发现引擎（Discovery Engine）",
+        "type": "boolean",
+        "default": false,
+        "description": "关闭时所有 discovery API 返回 403，DAG 节点零副作用"
+      },
+      "discovery_per_source": {
+        "title": "证据召回每源条数",
+        "type": "integer",
+        "default": 6,
+        "minimum": 1,
+        "maximum": 20
+      },
+      "discovery_elo_rounds": {
+        "title": "Elo 锦标赛轮数",
+        "type": "integer",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10
+      },
+      "hypothesis_model_tier": {
+        "title": "假说生成模型档次",
+        "type": "string",
+        "default": "economy"
       }
     }
   },
@@ -128,6 +172,11 @@
     "default_search_limit": 30,
     "arxiv_enabled": true,
     "semantic_enabled": true,
-    "openalex_enabled": true
+    "openalex_enabled": true,
+    "zh_enabled": true,
+    "discovery_enabled": false,
+    "discovery_per_source": 6,
+    "discovery_elo_rounds": 3,
+    "hypothesis_model_tier": "economy"
   }
 }

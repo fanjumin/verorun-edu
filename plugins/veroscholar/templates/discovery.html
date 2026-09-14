@@ -1,0 +1,272 @@
+<!-- plugins/veroscholar/templates/discovery.html -->
+<!DOCTYPE html>
+<html lang="{{ g.lang_code or 'zh-CN' }}">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{{ _('Discovery Engine') }} - VeroRun</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<link rel="stylesheet" href="/static/css/themes.css"/>
+<link rel="stylesheet" href="/admin/veroscholar/static/css/veroscholar.css"/>
+<script>
+(function(){
+  var KEY='verorun_admin_theme';
+  function apply(){
+    try{
+      var t=localStorage.getItem(KEY);
+      if(t==='slate'||t==='light'){document.documentElement.setAttribute('data-theme',t);}
+      else if(document.documentElement.hasAttribute('data-theme')){document.documentElement.removeAttribute('data-theme');}
+    }catch(e){}
+  }
+  apply();
+  window.addEventListener('storage',function(e){if(e.key===KEY||e.key===null)apply();});
+  setInterval(apply,1000);
+})();
+</script>
+<script>
+window.__t = {{ translations|tojson }};
+window.__locale = '{{ g.lang_code or "zh-CN" }}';
+</script>
+</head>
+<body>
+<div class="vs-page">
+  <h2>{{ _('Discovery Engine') }}</h2>
+  <div class="vs-sub">{{ _('Generate novel research hypotheses from a research question') }}</div>
+
+  <!-- 统计 -->
+  <div class="vs-grid-4" id="ds-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
+    <div class="vs-panel" style="text-align:center;"><div class="vs-stat-num" id="ds-total-runs">0</div><div class="vs-stat-label">{{ _('Total Runs') }}</div></div>
+    <div class="vs-panel" style="text-align:center;"><div class="vs-stat-num" id="ds-running-runs">0</div><div class="vs-stat-label">{{ _('Running') }}</div></div>
+    <div class="vs-panel" style="text-align:center;"><div class="vs-stat-num" id="ds-total-hypos">0</div><div class="vs-stat-label">{{ _('Total Hypotheses') }}</div></div>
+    <div class="vs-panel" style="text-align:center;"><div class="vs-stat-num" id="ds-avg-score">0.00</div><div class="vs-stat-label">{{ _('Avg Score') }}</div></div>
+  </div>
+
+  <!-- 触发区 -->
+  <div class="vs-panel">
+    <div class="vs-field">
+      <label>{{ _('Research Question') }} *</label>
+      <textarea id="ds-question" rows="3" placeholder="{{ _('Enter a research question to explore') }}"></textarea>
+    </div>
+    <button class="btn btn-primary" id="ds-run">{{ _('Generate Hypotheses') }}</button>
+    <span style="margin-left:10px;font-size:12px;color:var(--text-secondary);" id="ds-status"></span>
+  </div>
+
+  <div class="vs-grid-2">
+    <!-- 运行列表 -->
+    <div class="vs-section">
+      <h3>{{ _('Recent Runs') }}</h3>
+      <div id="ds-runs"></div>
+    </div>
+
+    <!-- 运行详情 -->
+    <div class="vs-section">
+      <h3>{{ _('Run Detail') }}</h3>
+      <div id="ds-detail">
+        <div class="vs-panel"><div class="vs-empty">{{ _('Select a run from the list to view its hypotheses') }}</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/veroscholar/static/js/veroscholar.js"></script>
+<script>
+(function () {
+  'use strict';
+  var VS = window.VS;
+
+  function esc(v) { return VS.esc(v); }
+  function t(k) { return VS.t(k); }
+
+  function loadStats() {
+    VS.api('/admin/veroscholar/api/v1/discovery/stats').then(function (r) {
+      if (!r || !r.success) { return; }
+      var d = r.data || {};
+      document.getElementById('ds-total-runs').textContent = d.total_runs || 0;
+      document.getElementById('ds-running-runs').textContent = d.running_runs || 0;
+      document.getElementById('ds-total-hypos').textContent = d.total_hypotheses || 0;
+      document.getElementById('ds-avg-score').textContent = (d.avg_hypothesis_score || 0).toFixed(2);
+    }).catch(function () {});
+  }
+
+  function loadRuns() {
+    VS.api('/admin/veroscholar/api/v1/discovery/runs?limit=20').then(function (r) {
+      var box = document.getElementById('ds-runs');
+      if (!r || !r.success || !r.data || !r.data.runs.length) {
+        box.innerHTML = '<div class="vs-empty">' + t('discovery_no_runs') + '</div>';
+        return;
+      }
+      box.innerHTML = r.data.runs.map(function (run) {
+        var cls = 'vs-step';
+        var dot = '';
+        if (run.status === 'completed') { cls += ' done'; dot = '&#10003;'; }
+        else if (run.status === 'running') { cls += ' running'; dot = '&#9679;'; }
+        else if (run.status === 'failed') { cls += ' failed'; dot = '&#10007;'; }
+        return '<div class="vs-paper" data-rid="' + esc(run.id) + '" style="cursor:pointer;">' +
+          '<div class="vs-paper-head"><span class="' + cls + '" style="padding:0 6px;">' + dot + '</span>' +
+          '<span class="vs-badge">' + esc(run.status || 'running') + '</span>' +
+          '<span class="vs-paper-year">' + esc(String(run.created_at || '').slice(0, 10)) + '</span></div>' +
+          '<div class="vs-paper-title">' + esc(run.question) + '</div>' +
+          '</div>';
+      }).join('');
+      box.querySelectorAll('[data-rid]').forEach(function (el) {
+        el.addEventListener('click', function () { openRun(el.getAttribute('data-rid')); });
+      });
+    }).catch(function () {});
+  }
+
+  function openRun(runId) {
+    var detail = document.getElementById('ds-detail');
+    detail.innerHTML = '<div class="vs-empty">' + t('discovery_loading') + '</div>';
+    Promise.all([
+      VS.api('/admin/veroscholar/api/v1/discovery/runs/' + encodeURIComponent(runId)),
+      VS.api('/admin/veroscholar/api/v1/discovery/runs/' + encodeURIComponent(runId) + '/hypotheses')
+    ]).then(function (results) {
+      var runRes = results[0];
+      var hypoRes = results[1];
+      if (!runRes || !runRes.success) {
+        detail.innerHTML = '<div class="vs-panel"><div class="vs-empty">' + t('discovery_error') + '</div></div>';
+        return;
+      }
+      var run = runRes.data || {};
+      var hypos = (hypoRes && hypoRes.success && hypoRes.data) || [];
+
+      var html = '<div class="vs-panel">';
+      html += '<h3 style="margin-top:0;">' + esc(run.question) + '</h3>';
+      html += '<div class="vs-sub">' + t('status') + ': ' + esc(run.status || 'running') +
+        ' &middot; ' + t('trigger') + ': ' + esc(run.trigger || 'manual') +
+        ' &middot; ' + t('created') + ': ' + esc(String(run.created_at || '').slice(0, 19).replace('T', ' ')) + '</div>';
+
+      html += '<h4 style="margin-bottom:6px;">' + t('Hypotheses') + ' (' + hypos.length + ')</h4>';
+      if (!hypos.length) {
+        html += '<div class="vs-empty">' + t('discovery_no_hypotheses') + '</div>';
+      } else {
+        html += hypos.slice(0, 10).map(function (h) {
+          var score = (h.score !== null && h.score !== undefined) ? Number(h.score).toFixed(2) : '—';
+          return '<div class="vs-paper">' +
+            '<div class="vs-paper-head"><span class="vs-badge">' + esc(t('Score')) + ': ' + score + '</span>' +
+            '<span class="vs-badge vs-badge-status">' + esc(t('Elo')) + ': ' + esc(h.elo_rating) + '</span>' +
+            (h.cluster_id ? '<span class="vs-badge">' + esc(t('Cluster')) + ': ' + esc(h.cluster_id) + '</span>' : '') +
+            '</div>' +
+            '<div class="vs-paper-title">' + esc(h.statement) + '</div>' +
+            renderHypothesisStructure(h) +
+            renderDiscussions(h.discussions) +
+            '</div>';
+        }).join('');
+      }
+
+      if (run.events && run.events.length) {
+        html += '<h4 style="margin:12px 0 6px;">' + t('Events') + '</h4>';
+        html += '<div style="font-size:12px;line-height:1.8;color:var(--text-secondary);">';
+        html += run.events.map(function (e) {
+          return '<div>' + esc(String(e.created_at || '').slice(11, 19)) + ' [' + esc(e.stage || '') + '] ' + esc(e.status || '') + '</div>';
+        }).join('');
+        html += '</div>';
+      }
+      html += '</div>';
+      detail.innerHTML = html;
+    }).catch(function () {
+      detail.innerHTML = '<div class="vs-panel"><div class="vs-empty">' + t('discovery_error') + '</div></div>';
+    });
+  }
+
+  function renderHypothesisStructure(h) {
+    if (!h) { return ''; }
+    var vars = (h.variables && h.variables.length) ? h.variables.join(', ') : '';
+    if (!h.context && !h.relationship && !vars && !h.null_hypothesis && !h.falsification_test) {
+      return '';
+    }
+    var html = '<div class="vs-paper-abs" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;font-size:12px;line-height:1.7;">';
+    if (h.context) { html += '<div><span style="font-weight:600;">' + esc(t('Context')) + ':</span> ' + esc(String(h.context).slice(0, 160)) + '</div>'; }
+    if (vars) { html += '<div><span style="font-weight:600;">' + esc(t('Variables')) + ':</span> ' + esc(vars) + '</div>'; }
+    if (h.relationship) { html += '<div><span style="font-weight:600;">' + esc(t('Relationship')) + ':</span> ' + esc(String(h.relationship).slice(0, 160)) + '</div>'; }
+    if (h.null_hypothesis) { html += '<div><span style="font-weight:600;">' + esc(t('Null hypothesis')) + ':</span> ' + esc(String(h.null_hypothesis).slice(0, 160)) + '</div>'; }
+    if (h.falsification_test) { html += '<div><span style="font-weight:600;">' + esc(t('Falsification test')) + ':</span> ' + esc(String(h.falsification_test).slice(0, 200)) + '</div>'; }
+    html += '</div>';
+    return html;
+  }
+
+  function renderDiscussions(discussions) {
+    if (!discussions || !discussions.length) { return ''; }
+    var html = '<div class="vs-paper-abs" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;">';
+    html += '<div style="font-weight:600;font-size:12px;margin-bottom:4px;">' + t('Discussions') + '</div>';
+    html += discussions.slice(-3).map(function (d) {
+      var body = d.response || '';
+      return '<div style="font-size:12px;margin:4px 0;padding:4px 6px;background:var(--bg-secondary,#f8f9fa);border-radius:3px;">' +
+        '<span style="font-weight:600;">' + esc(d.protocol || 'discussion') + ':</span> ' + esc(String(body).slice(0, 180)) +
+        '</div>';
+    }).join('');
+    html += '</div>';
+    return html;
+  }
+
+  // DE-5：后台运行（mode=background/dag）时轮询运行详情直至终态。
+  var _pollTimer = null;
+  function stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    document.getElementById('ds-run').disabled = false;
+  }
+  function pollRunUntilDone(runId) {
+    if (_pollTimer) { clearInterval(_pollTimer); }
+    var statusEl = document.getElementById('ds-status');
+    _pollTimer = setInterval(function () {
+      VS.api('/admin/veroscholar/api/v1/discovery/runs/' + encodeURIComponent(runId))
+        .then(function (r) {
+          var st = (r && r.success && r.data && r.data.status) || 'running';
+          if (st === 'running') {
+            statusEl.textContent = t('discovery_in_progress') + '...';
+            return;
+          }
+          stopPolling();
+          if (st === 'completed') { statusEl.textContent = t('discovery_completed'); }
+          else { statusEl.textContent = t('discovery_run_failed') + ': ' + ((r.data && r.data.error) || st); }
+          loadStats();
+          loadRuns();
+          openRun(runId);
+        })
+        .catch(function () { /* 网络抖动：下一轮继续 */ });
+    }, 5000);
+  }
+
+  function triggerDiscovery() {
+    var question = document.getElementById('ds-question').value.trim();
+    var statusEl = document.getElementById('ds-status');
+    if (!question) { statusEl.textContent = t('discovery_no_question'); return; }
+    var btn = document.getElementById('ds-run');
+    btn.disabled = true;
+    statusEl.textContent = t('discovery_generating') + '...';
+    VS.api('/admin/veroscholar/api/v1/discovery/trigger', {
+      method: 'POST',
+      body: JSON.stringify({ question: question, mode: 'auto' })
+    }).then(function (r) {
+      if (r && r.success) {
+        statusEl.textContent = t('discovery_started');
+        loadStats();
+        loadRuns();
+        if (r.data && r.data.run_id) { openRun(r.data.run_id); }
+        // 后台模式（background/dag）无即时产物 → 轮询到终态再刷新
+        if (r.data && (r.data.mode === 'background' || r.data.mode === 'dag')) {
+          pollRunUntilDone(r.data.run_id);
+        } else {
+          btn.disabled = false;
+        }
+      } else {
+        btn.disabled = false;
+        statusEl.textContent = (r && r.error) ? r.error : t('discovery_failed');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      statusEl.textContent = t('discovery_failed');
+    });
+  }
+
+  function init() {
+    document.getElementById('ds-run').addEventListener('click', triggerDiscovery);
+    loadStats();
+    loadRuns();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

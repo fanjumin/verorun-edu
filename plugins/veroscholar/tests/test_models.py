@@ -150,5 +150,63 @@ class TestAnnotation(unittest.TestCase):
         self.assertEqual(params[4], '[0.1,0.2]')
 
 
+class TestExportFormat(unittest.TestCase):
+    """to_bibtex / to_ris — 预印本与期刊论文导出。"""
+
+    _arxiv_paper = {
+        'doi': '10.48550/arXiv.1706.03762',
+        'title': 'Attention Is All You Need',
+        'authors': '[{"name": "Vaswani, Ashish"}, {"name": "Shazeer, Noam"}]',
+        'venue': 'arXiv',
+        'year': 2017,
+        'citation_count': 50000,
+        'pdf_url': 'https://arxiv.org/pdf/1706.03762.pdf',
+        'source_db': 'arxiv',
+        'external_id': 'arXiv:1706.03762',
+    }
+
+    _journal_paper = {
+        'doi': '10.1234/j.neurips.2017',
+        'title': 'Attention Is All You Need',
+        'authors': '[{"name": "Vaswani, Ashish"}, {"name": "Shazeer, Noam"}]',
+        'venue': 'NeurIPS',
+        'year': 2017,
+        'citation_count': 50000,
+        'pdf_url': '',
+        'source_db': 'semantic_scholar',
+        'external_id': '',
+    }
+
+    def test_arxiv_bibtex(self):
+        bib = m.to_bibtex(self._arxiv_paper)
+        self.assertIn('@misc{', bib)
+        self.assertIn('archivePrefix = {arXiv}', bib)
+        self.assertIn('eprint = {1706.03762}', bib)
+
+    def test_arxiv_bibtex_no_external_id(self):
+        paper = dict(self._arxiv_paper, external_id='')
+        bib = m.to_bibtex(paper)
+        self.assertIn('eprint = {1706.03762}', bib)  # 从 DOI 兜底
+
+    def test_journal_bibtex_regression(self):
+        bib = m.to_bibtex(self._journal_paper)
+        self.assertIn('@article{', bib)
+        self.assertIn('journal = {NeurIPS}', bib)
+
+    def test_arxiv_ris(self):
+        ris = m.to_ris(self._arxiv_paper)
+        self.assertIn('TY  - RPRT', ris)
+        self.assertIn('DB  - arXiv', ris)
+
+    def test_journal_ris_regression(self):
+        ris = m.to_ris(self._journal_paper)
+        self.assertIn('TY  - JOUR', ris)
+        self.assertNotIn('DB  - arXiv', ris)
+
+    def test_empty_title(self):
+        self.assertEqual(m.to_bibtex({'title': ''}), '')
+        self.assertEqual(m.to_ris({'title': ''}), '')
+
+
 if __name__ == '__main__':
     unittest.main()

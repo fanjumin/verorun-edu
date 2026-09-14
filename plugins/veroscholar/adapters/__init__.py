@@ -8,12 +8,14 @@ from .base import BaseScholarAdapter
 from .arxiv import ArxivAdapter
 from .semantic_scholar import SemanticScholarAdapter
 from .openalex import OpenAlexAdapter
+from .openalex_zh import OpenAlexZHAdapter
 
 __all__ = [
     'BaseScholarAdapter',
     'ArxivAdapter',
     'SemanticScholarAdapter',
     'OpenAlexAdapter',
+    'OpenAlexZHAdapter',
     'ADAPTER_REGISTRY',
     'get_adapter',
 ]
@@ -24,6 +26,7 @@ ADAPTER_REGISTRY = {
     'semantic': SemanticScholarAdapter,
     'semantic_scholar': SemanticScholarAdapter,
     'openalex': OpenAlexAdapter,
+    'openalex_zh': OpenAlexZHAdapter,
 }
 
 
