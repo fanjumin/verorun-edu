@@ -29,8 +29,9 @@
 : "${LOG_DIR:=/var/log/verorun}"
 : "${SERVICE_DIR:=/etc/systemd/system}"
 : "${REGION:=global}"                # cn | global
-# 审计 H-5：Sparse-checkout whitelist (base list). Entry scripts can extend it by appending,
-# e.g. install-code.sh runs SPARSE_DIRS="${SPARSE_DIRS} plugins" after sourcing.
+# 审计 H-5：Sparse-checkout whitelist (base list)。入口脚本可改写本变量：源码版/官方版/教育版
+# 刻意置空表示"全量检出"（如 install-code.sh 的 SPARSE_DIRS=""）。
+# 2026-09-16：白名单实际下发统一由 _apply_sparse_checkout 处理（含缺核心服务目录时降级全量检出的守卫）。
 # 审计 M-1：appends scripts/ (the README references the scripts/dev_start.py local dev script).
 # 审计 H-5 / 根治 2026-08-21：SPARSE_DIRS 采用 "未设置才赋默认、空串保持为空" 语义。
 # 原因：官方版/源码版把 SPARSE_DIRS 刻意置空表示"全量检出（disable sparse-checkout）"；
@@ -55,6 +56,53 @@ fi
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 OK="${GREEN}[OK]${NC}"; WARN="${YELLOW}[WARN]${NC}"; FAIL="${RED}[FAIL]${NC}"; INFO="${BLUE}[i]${NC}"
+
+# ── Sparse-checkout 下发 + 白名单守卫（2026-09-16）─────────────────────
+# do_install / do_update 共用，统一稀疏检出行为：
+#   1) SPARSE_DIRS 为空     → 全量检出（disable），绝不 set；
+#   2) 白名单缺核心服务目录 → 视为异常白名单（历史残留 / 错误传入），告警并降级为全量检出；
+#   3) 白名单完整           → disable 清残留 → init --cone + set。
+# 事故背景（2026-09-16 .104）：工作副本白名单未含 plugins/iot_hub、plugins/cogevolution_substrate，
+# 被跟踪的插件源被置 skip-worktree 且永不落盘 → 插件枚举不到、蓝图未挂载 → 路由 404；
+# 反向风险同样存在：像 "plugins" 这种只含单目录的白名单，在 cone 模式下会裁掉 admin/ main_site/
+# 等其余被跟踪目录，直接把装机弄坏。两种后果都由本守卫拦住。
+_apply_sparse_checkout() {
+    local home="$1"
+    local critical_dir
+    local missing=""
+
+    if [ -z "${SPARSE_DIRS:-}" ]; then
+        git -C "${home}" sparse-checkout disable 2>/dev/null || true
+        echo -e "${INFO} SPARSE_DIRS empty — full checkout, sparse-checkout disabled"
+        return 0
+    fi
+
+    # 核心服务目录：缺任一即认定白名单不可信（缺服务根目录，装机必然不可用）
+    for critical_dir in admin main_site; do
+        case " ${SPARSE_DIRS} " in
+            *" ${critical_dir} "*) : ;;
+            *) missing="${missing} ${critical_dir}" ;;
+        esac
+    done
+    if [ -n "${missing}" ]; then
+        git -C "${home}" sparse-checkout disable 2>/dev/null || true
+        echo -e "${WARN} Sparse whitelist incomplete (missing:${missing}) — falling back to full checkout"
+        echo -e "${INFO} 白名单必须包含 admin/main_site 等核心服务目录；按异常白名单裁剪会删除工作区被跟踪文件，已改为全量检出"
+        return 0
+    fi
+
+    # 审计 H6：leftovers from old repos/manual mode (core.sparseCheckoutCone not set) make set follow manual mode,
+    # where patterns contain only directories with no "/*" root-file keep rule → root files such as
+    # requirements.txt/VERSION/README get deleted from the working tree. First disable to clear leftovers, then init --cone + set;
+    # on failure fall back to a full checkout (no files deleted) and continue installation.
+    git -C "${home}" sparse-checkout disable 2>/dev/null || true
+    if git -C "${home}" sparse-checkout init --cone 2>/dev/null \
+        && git -C "${home}" sparse-checkout set ${SPARSE_DIRS} 2>/dev/null; then
+        return 0
+    fi
+    git -C "${home}" sparse-checkout disable 2>/dev/null || true
+    echo -e "${WARN} sparse-checkout failed — keeping full working tree"
+}
 
 # 审计 F-3：globally suppress git interactive credential prompts (applies to all git call sites, e.g. update/rollback/configure-domain);
 # any credential request fails immediately instead of hanging interactively, preventing infinite stalls when origin points to a mirror.
@@ -722,6 +770,57 @@ assert_debug_disabled() {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# 并发 worker / 线程数解析（审计 PERF-002：动态适应 + .env 可覆盖 + 免重装）
+# ══════════════════════════════════════════════════════════════════════
+# 优先级：调用者环境变量 > .env 中的值 > 按物理内存自动计算。
+# 自动档位：<2048MB→1；2048–4095MB→2；≥4096MB→4；再取 min(档位, nproc, VR_WORKERS_MAX)。
+# 上限：VR_WORKERS 最高 8（超出即警告并收敛为 8）；非法值（空/非数字/0）回退默认 2 / 4。
+# 生效方式：解析结果写入 .env，systemd 单元在服务启动时读取 → 改 .env 后只需 restart，无需重装。
+VR_WORKERS_MAX=8
+resolve_vr_workers() {
+    local env_file="${APP_HOME}/.env" v="" mem_mb="" ncpu="" tier=""
+    if [ -f "${env_file}" ]; then
+        v="$(grep -E '^VR_WORKERS=' "${env_file}" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' | tr -d '"')"
+    fi
+    # 调用者环境变量优先级最高
+    [ -n "${VR_WORKERS:-}" ] && v="${VR_WORKERS}"
+    if [ -z "${v}" ]; then
+        mem_mb="$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null)"
+        case "${mem_mb}" in ''|*[!0-9]*) mem_mb=2048 ;; esac
+        ncpu="$(nproc 2>/dev/null || echo 1)"
+        case "${ncpu}" in ''|*[!0-9]*|0*) ncpu=1 ;; esac
+        if   [ "${mem_mb}" -lt 2048 ]; then tier=1
+        elif [ "${mem_mb}" -lt 4096 ]; then tier=2
+        else tier=4
+        fi
+        [ "${ncpu}" -lt "${tier}" ] && tier="${ncpu}"
+        [ "${tier}" -gt "${VR_WORKERS_MAX}" ] && tier="${VR_WORKERS_MAX}"
+        v="${tier}"
+    fi
+    case "${v}" in
+        ''|*[!0-9]*|0*)
+            echo 2; return 0 ;;
+    esac
+    if [ "${v}" -gt "${VR_WORKERS_MAX}" ]; then
+        echo -e "${WARN} VR_WORKERS=${v} 超过上限 ${VR_WORKERS_MAX}，已收敛为 ${VR_WORKERS_MAX}" >&2
+        v="${VR_WORKERS_MAX}"
+    fi
+    echo "${v}"
+}
+
+resolve_vr_threads() {
+    local env_file="${APP_HOME}/.env" v=""
+    if [ -f "${env_file}" ]; then
+        v="$(grep -E '^VR_THREADS=' "${env_file}" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' | tr -d '"')"
+    fi
+    [ -n "${VR_THREADS:-}" ] && v="${VR_THREADS}"
+    case "${v}" in
+        ''|*[!0-9]*|0*) echo 4 ;;
+        *) echo "${v}" ;;
+    esac
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # .env: fill in missing keys (idempotent)
 # ══════════════════════════════════════════════════════════════════════
 update_env() {
@@ -772,6 +871,8 @@ APP_REGION ${REGION:-global}
 DASHSCOPE_TEXT_KEY 
 OPENAI_API_KEY 
 DEEPSEEK_API_KEY 
+VR_WORKERS ${VR_WORKERS:-$(resolve_vr_workers)}
+VR_THREADS ${VR_THREADS:-$(resolve_vr_threads)}
 LOG_FILE=${LOG_DIR}/verorun-app.jsonl
 EOF
 
@@ -815,21 +916,19 @@ _skip_user_console() {
 
 write_systemd_services() {
     local env_file="${APP_HOME}/.env"
-    # 审计 H-4 fix：the gunicorn worker count is no longer hardcoded as -w 2.
-    # The default stays 2 (backward compatible, no change to existing deployment resource usage);
-    # high-concurrency scenarios can override it with the VR_WORKERS env var, e.g.:
-    #   VR_WORKERS=4 sudo bash deploy/install.sh update
-    # 审计 PERF-001 fix：sync → gthread 线程池，默认 --threads 4（2 workers × 4 threads = 8 并发槽）。
-    # pbkdf2 走 OpenSSL 释放 GIL，线程池可并行哈希；可用 VR_THREADS 覆盖，例如 VR_THREADS=8。
-    local _workers="${VR_WORKERS:-2}"
-    local _threads="${VR_THREADS:-4}"
+    # 审计 H-4 / PERF-002 fix：worker 数不再写死 -w 2，改为"动态适应 + .env 可覆盖 + 免重装 + 上限 8"。
+    # VR_WORKERS / VR_THREADS 由 update_env() 写入 .env（优先级：调用者环境变量 > .env > 按内存自动档位）。
+    # 单元里用 $${VAR:-默认值}：systemd 把 $$ 输出为字面 $，再由 bash 在服务启动时从 EnvironmentFile(.env)
+    # 取值 —— 因此修改 .env 后只需 systemctl restart，无需重装（已实测 systemd 255 下 $$ 转义 + :- 兜底均生效）。
+    # 审计 PERF-001 fix：sync → gthread 线程池，默认 --threads 4（pbkdf2 走 OpenSSL 释放 GIL，线程池可并行哈希）。
     write_one_service() {
         local name=$1 port=$2 module=$3 extra_args="${4:-}" runner="${5:-}" runtime_dir="${6:-}"
         local file="${SERVICE_DIR}/${name}.service"
+        # 注意：$$ 在双引号内会被 bash 解释为 PID，必须写成 \$\$ 才能落到单元文件里成为字面 $$。
         if [ -n "${runner}" ]; then
-            local exec_cmd="${VENV_DIR}/bin/python ${APP_HOME}/${runner} -w ${_workers} -k gthread --threads ${_threads} -b 127.0.0.1:${port} ${extra_args} ${module}:app"
+            local exec_cmd="/bin/bash -c 'exec ${VENV_DIR}/bin/python ${APP_HOME}/${runner} -w \$\${VR_WORKERS:-2} -k gthread --threads \$\${VR_THREADS:-4} -b 127.0.0.1:${port} ${extra_args} ${module}:app'"
         else
-            local exec_cmd="${VENV_DIR}/bin/gunicorn -w ${_workers} -k gthread --threads ${_threads} -b 127.0.0.1:${port} ${extra_args} ${module}:app"
+            local exec_cmd="/bin/bash -c 'exec ${VENV_DIR}/bin/gunicorn -w \$\${VR_WORKERS:-2} -k gthread --threads \$\${VR_THREADS:-4} -b 127.0.0.1:${port} ${extra_args} ${module}:app'"
         fi
         local rt_block=""
         if [ -n "${runtime_dir}" ]; then
@@ -1390,12 +1489,38 @@ do_rollback() {
 # ══════════════════════════════════════════════════════════════════════
 
 # ── .env generation: header comment / DEPLOY_DOMAIN / DEPLOY_PROTOCOL driven by DEPLOY_TYPE ──
+# ── 商店镜像（CN 服务器必需）：缺键则补齐，幂等 ──────────────────────
+# .env.example 已声明 STORE_CATALOG_URLS / DOWNLOAD_MIRROR_PREFIX，但
+# generate_env 历史生成的 .env 遗漏了它们：CN 环境下商店安装/升级只能走
+# github.com（间歇不可达）→ 下载失败。此处对「已存在的 .env」补齐。
+# 仅追加缺失键，绝不覆盖既有值；可安全重复执行。
+_ensure_store_mirror_env() {
+    local env_file="${APP_HOME}/.env"
+    [ -f "${env_file}" ] || return 0
+
+    if ! grep -q '^STORE_CATALOG_URLS=' "${env_file}"; then
+        echo "# 商店目录多源（Gitee 优先，GitHub 回退）" >> "${env_file}"
+        echo "STORE_CATALOG_URLS=https://gitee.com/fanjumin/verorun-store/raw/main/store_catalog.json,https://raw.githubusercontent.com/fanjumin/verorun-store/main/store_catalog.json" >> "${env_file}"
+        echo -e "${INFO} .env: added STORE_CATALOG_URLS (store mirror)"
+    fi
+
+    if ! grep -q '^DOWNLOAD_MIRROR_PREFIX=' "${env_file}"; then
+        echo "# 下载镜像前缀：GitHub release 下载 host 替换为 Gitee（release 资产已镜像）" >> "${env_file}"
+        echo "DOWNLOAD_MIRROR_PREFIX=https://gitee.com" >> "${env_file}"
+        echo -e "${INFO} .env: added DOWNLOAD_MIRROR_PREFIX (store mirror)"
+    fi
+
+    chown "${APP_USER}:${APP_USER}" "${env_file}" 2>/dev/null || true
+    chmod 600 "${env_file}" 2>/dev/null || true
+}
+
 generate_env() {
     local env_file="${APP_HOME}/.env"
     local force="${1:-}"
 
     if [ -f "${env_file}" ] && [ "${force}" != "force" ]; then
         echo -e "${WARN} .env already exists, skipping"
+        _ensure_store_mirror_env
         return
     fi
 
@@ -1513,6 +1638,10 @@ AUTO_KNOWLEDGE_EXTRACT=0
 # Structured JSON logs (X-Request-Id correlation) — shared/logging.py mounts the JSON file
 # handler only when LOG_FILE is set (C-4 联调验证依赖此配置；目录不存在时应用自动创建)
 LOG_FILE=${LOG_DIR}/verorun-app.jsonl
+
+# 商店目录多源（Gitee 优先，GitHub 回退）与下载镜像（CN 服务器必需）
+STORE_CATALOG_URLS=https://gitee.com/fanjumin/verorun-store/raw/main/store_catalog.json,https://raw.githubusercontent.com/fanjumin/verorun-store/main/store_catalog.json
+DOWNLOAD_MIRROR_PREFIX=https://gitee.com
 
 # Region routing (VeroRun 0.43.0+)
 APP_REGION=${REGION}
@@ -1716,6 +1845,26 @@ ${_auth_basic_on}
     }
 
     # ── Main site ───────────────────────────────
+    # AI 浮窗探测端点（DEF-04）：由 site_builder 插件挂在 8084，须在 location / 之前精确命中
+    location = /api/v1/site-chat {
+        proxy_pass http://127.0.0.1:8084/plugin/site_builder/api/v1/site-chat;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+    # IoT 设备接入端点（iot_hub 插件）：插件蓝图带显式 url_prefix /api/iot/v1，只挂在挂载
+    # 插件路由的 8083/8084；默认 location / 指向 8081（auth_server，不挂插件路由），
+    # 故必须在此显式转发，否则设备 HTTP 请求全部 404
+    location ^~ /api/iot/v1/ {
+        proxy_pass http://127.0.0.1:8083;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        # 审计 M1：XFF overwritten with the direct IP (\$remote_addr), not appending client-forged values
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
     location / {
         # 审计 M4：main-site uploads (avatars up to 2MB etc.) need > nginx's default 1M, consistent with the backend limit
         client_max_body_size 100M;
@@ -1908,6 +2057,26 @@ ${_auth_basic_on}
     }
 
     # ── Main site (default route) ───────────
+    # AI 浮窗探测端点（DEF-04）：由 site_builder 插件挂在 8084，须在 location / 之前精确命中
+    location = /api/v1/site-chat {
+        proxy_pass http://127.0.0.1:8084/plugin/site_builder/api/v1/site-chat;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+    # IoT 设备接入端点（iot_hub 插件）：插件蓝图带显式 url_prefix /api/iot/v1，只挂在挂载
+    # 插件路由的 8083/8084；默认 location / 指向 8081（auth_server，不挂插件路由），
+    # 故必须在此显式转发，否则设备 HTTP 请求全部 404
+    location ^~ /api/iot/v1/ {
+        proxy_pass http://127.0.0.1:8083;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        # 审计 M1：XFF overwritten with the direct IP (\$remote_addr), not appending client-forged values
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
     location / {
         # 审计 M4：LAN main-site uploads consistent with the backend limit
         client_max_body_size 100M;
@@ -1952,6 +2121,17 @@ NGXEOF
     fi
     rm -f /etc/nginx/sites-enabled/default
     ln -sf "${nginx_conf}" "${nginx_enabled}"
+}
+
+# DEF-07：把 site_builder 插件的商务/客服前端 JS 同步到 main_site 根静态目录。
+# 插件 partial 硬编码引用 /static/js/commerce/*.js，若 deploy 缺此复制步骤则
+# main_site(8081) 对 chat-bubble.js / cart-drawer.js 等返回 404，AI 浮窗、购物车抽屉
+# 静默失效。幂等：无源目录时跳过，不报错。在 install 与 update 拉取代码后各调一次。
+_sync_commerce_static() {
+    if [ -d "${APP_HOME}/plugins/site_builder/static/js/commerce" ]; then
+        mkdir -p "${APP_HOME}/static/js/commerce"
+        cp "${APP_HOME}/plugins/site_builder/static/js/commerce/"*.js "${APP_HOME}/static/js/commerce/" 2>/dev/null || true
+    fi
 }
 
 # ── Fresh install: DEPLOY_TYPE drives domain prompt / pull messaging / cleanup / service startup ──
@@ -2189,33 +2369,19 @@ do_install() {
         fi
         _clone_with_timeout "${GIT_REPO}" "${APP_HOME}" "${GIT_BRANCH}"
     fi
-    # Apply the sparse-checkout whitelist ONLY when SPARSE_DIRS is non-empty.
-    # 根治 2026-08-20：SPARSE_DIRS 为空 = 全量检出（官方版/源码版），只执行 disable，
-    # 绝不 init --cone + set —— 否则旧白名单会在 git pull 时删除 cone 外的被跟踪文件
-    # （曾导致官方版 26 个插件被清空、服务加载失败）。
-    if [ -n "${SPARSE_DIRS:-}" ]; then
-        # 审计 H6：leftovers from old repos/manual mode (core.sparseCheckoutCone not set) make set follow manual mode,
-        # where patterns contain only directories with no "/*" root-file keep rule → root files such as
-        # requirements.txt/VERSION/README get deleted from the working tree. First disable to clear leftovers, then init --cone + set;
-        # on failure fall back to a full checkout (no files deleted) and continue installation.
-        git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-        if git -C "${APP_HOME}" sparse-checkout init --cone 2>/dev/null \
-            && git -C "${APP_HOME}" sparse-checkout set ${SPARSE_DIRS} 2>/dev/null; then
-            :
-        else
-            git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-            echo -e "${WARN} sparse-checkout failed — keeping full working tree"
-        fi
-    else
-        git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-        echo -e "${INFO} SPARSE_DIRS empty — full checkout, sparse-checkout disabled"
-    fi
+    # Sparse-checkout 下发（含白名单守卫）：见 _apply_sparse_checkout。
+    # 2026-09-16：白名单缺 plugins/<id> 会让被跟踪的插件源永不落盘（.104 路由 404 真因）；
+    # 白名单缺 admin/main_site 则会把工作区裁坏。两种情况统一由守卫降级为全量检出。
+    _apply_sparse_checkout "${APP_HOME}"
     # No-domain scripts (install-local/code/dev) are kept on disk: deleting
     # git-tracked files leaves unstaged changes that break `git pull` / update.
     # Clean stale __pycache__ before chown (avoids race-condition failures)
     find "${APP_HOME}" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
     chown -R "${APP_USER}:${APP_USER}" "${APP_HOME}" 2>/dev/null || true
     done_step "Code pulled${_pull_suffix}: $(git -C "${APP_HOME}" log --oneline -1)"
+
+    # DEF-07：同步商务/客服前端 JS 到 main_site 根静态目录（install 路径）
+    _sync_commerce_static
 
     # STD-3 前置预检（2026-08-29 标准版部署测试）：发版清单与 VERSION 的 semver 一致性必须在
     # 重量级步骤（venv + pip 全量依赖，实测 5-10 分钟）之前校验——实测 0.60.0 VERSION 搭配
@@ -2501,29 +2667,16 @@ do_update() {
             }
         }
     fi
-    # Apply the sparse-checkout whitelist ONLY when SPARSE_DIRS is non-empty.
-    # 根治 2026-08-20：同 do_install——SPARSE_DIRS 为空 = 全量检出，只执行 disable，绝不 set，
-    # 杜绝 git pull 按旧白名单删除 cone 外的被跟踪文件。
-    if [ -n "${SPARSE_DIRS:-}" ]; then
-        # first disable to clear manual-mode leftovers, then init --cone + set;
-        # on failure fall back to a full checkout. See the 审计 H6 note in do_install for details.
-        git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-        if git -C "${APP_HOME}" sparse-checkout init --cone 2>/dev/null \
-            && git -C "${APP_HOME}" sparse-checkout set ${SPARSE_DIRS} 2>/dev/null; then
-            :
-        else
-            git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-            echo -e "${WARN} sparse-checkout failed — keeping full working tree"
-        fi
-    else
-        git -C "${APP_HOME}" sparse-checkout disable 2>/dev/null || true
-        echo -e "${INFO} SPARSE_DIRS empty — full checkout, sparse-checkout disabled"
-    fi
+    # Sparse-checkout 下发（含白名单守卫）：同 do_install —— 见 _apply_sparse_checkout。
+    _apply_sparse_checkout "${APP_HOME}"
     # No-domain scripts (install-local/code/dev) are kept on disk: deleting
     # git-tracked files leaves unstaged changes that break `git pull` / update.
     local after_commit
     after_commit=$(git log --oneline -1)
     done_step "Code updated: ${before_commit:0:7} -> ${after_commit:0:7}"
+
+    # DEF-07：同步商务/客服前端 JS 到 main_site 根静态目录（update 路径，修复存量部署）
+    _sync_commerce_static
 
     # Self-update: if the entry script itself changed, re-run update with new version
     local script_md5

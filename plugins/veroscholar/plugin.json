@@ -6,6 +6,7 @@
   "description": "科研全流程智能助手 — 选题 · 文献 · 写作 · 审稿",
   "author": "VeroRun",
   "min_app_version": "0.10.0",
+  "compatible_editions": ["research"],
   "category": "ai_agent",
   "icon": "graduation-cap",
   "icon_url": "",

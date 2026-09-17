@@ -2,7 +2,7 @@
 
 VeroScholar is VeroRun AI's research-lifecycle plugin for the education edition, covering the four core stages of **topic selection · literature · writing · review**.
 
-The plugin strictly follows [`docs/plugin-standard-v1.7.md`](../../docs/plugin-standard-v1.7.md): single database with multiple schemas (`veroscholar`), shared connection pool, JWT admin authentication, iframe standalone pages, i18n bilingual strings, and zero residue on uninstall.
+The plugin strictly follows [`docs/plugin-standard-v1.8.md`](../../docs/plugin-standard-v1.8.md): single database with multiple schemas (`veroscholar`), shared connection pool, JWT admin authentication, iframe standalone pages, i18n bilingual strings, and zero residue on uninstall.
 
 ## Feature Modules
 

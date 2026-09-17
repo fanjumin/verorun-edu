@@ -2,7 +2,7 @@
 
 VeroScholar 是 VeroRun AI 系统教育版的科研全流程插件，覆盖**选题 · 文献 · 写作 · 审稿**四个核心阶段。
 
-插件严格遵循 [`docs/plugin-standard-v1.7.md`](../../docs/plugin-standard-v1.7.md) 开发：
+插件严格遵循 [`docs/plugin-standard-v1.8.md`](../../docs/plugin-standard-v1.8.md) 开发：
 单库多 Schema（`veroscholar`）、共享连接池、JWT 管理员鉴权、iframe 独立页、
 i18n 双语文案、卸载零残留。
 

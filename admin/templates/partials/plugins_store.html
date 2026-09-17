@@ -94,20 +94,59 @@ function renderStoreList(container){
     mc.innerHTML=h;
   }).catch(function(){mc.innerHTML='<div class="em">{{ _('Network error') }}</div>'});
 }
+/* ── 安装中的可见状态（问题1）：禁用按钮 + 通栏细状态条（高 15px） ── */
+function _storeInstallState(id,busy){
+  var b=document.getElementById("storeInstallBtn");
+  if(b){
+    if(busy){if(!b.getAttribute("data-label"))b.setAttribute("data-label",b.innerHTML);b.disabled=true;b.innerHTML="{{ _('Installing') }}..."}
+    else{b.disabled=false;if(b.getAttribute("data-label"))b.innerHTML=b.getAttribute("data-label")}
+  }
+  var s=document.getElementById("storeInstallStatus");
+  if(busy){
+    if(!s&&b){
+      s=document.createElement("div");s.id="storeInstallStatus";
+      s.style.cssText="display:flex;align-items:center;gap:6px;height:15px;line-height:15px;width:100%;box-sizing:border-box;margin:16px 0 0 0;font-size:12px;color:var(--dim)";
+      /* 插到按钮行「上方」而非行内，才能通栏撑满（行内会被右对齐按钮挤窄） */
+      b.parentNode.parentNode.insertBefore(s,b.parentNode);
+    }
+    if(s){s.style.display="flex";s.innerHTML='<span style="flex:0 0 auto;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;display:inline-block"></span><span>'+esc(id)+" {{ _('Installing') }}...</span>"}
+  }else if(s){s.style.display="none";s.innerHTML=""}
+}
+/* ── 服务重启后就绪轮询，替代整页刷新（问题2/3） ── */
+function _storeWaitReady(id,tries){
+  tries=tries||0;
+  fetch("/admin/plugins/store/browse?page_size=1",{headers:{"Authorization":"Bearer "+T}}).then(function(r){return r.json()}).then(function(d){
+    if(d&&d.success){
+      if(typeof closePluginDetail==="function")closePluginDetail();
+      if(typeof renderNav==="function")renderNav();
+      if(typeof renderStoreList==="function")renderStoreList();
+      showToast(esc(id)+" {{ _('Enabled') }}","success");
+    }else if(tries<40){setTimeout(function(){_storeWaitReady(id,tries+1)},1500)}
+  }).catch(function(){if(tries<40)setTimeout(function(){_storeWaitReady(id,tries+1)},1500)});
+}
 function storeInstallPlugin(id){
   showConfirm("{{ _('Install Plugin') }}","{{ _('Install plugin?') }} <b>"+esc(id)+"</b>",function(){
+    _storeInstallState(id,true);
     fetch("/admin/plugins/store/"+encodeURIComponent(id)+"/install",{method:"POST",headers:{"Authorization":"Bearer "+T}}).then(function(r){return r.json()}).then(function(d){
-      if(d.success){
-        if(d.data&&d.data.needs_restart){
-          showToast(esc(id)+" {{ _('Enabled') }} — {{ _('Restarting service') }}","success");
-          setTimeout(function(){location.reload()},3500);
-        }else{
-          showToast(esc(id)+" {{ _('Installed') }}","success");
-          renderStoreList&&renderStoreList();
-        }
+      _storeInstallState(id,false);
+      /* 失败必须如实报错，不得再伪装成功（问题3） */
+      if(!d.success){showToast(d.error||"{{ _('Install failed') }}","error");return}
+      if(d.data&&d.data.auto_enabled===false){
+        /* 已装但未启用 → 明确告知原因，并刷新列表（未启用不会出现在菜单） */
+        showToast(esc(id)+" {{ _('Installed but not enabled') }}: "+(d.data.enable_error||""),"error");
+        if(typeof renderStoreList==="function")renderStoreList();
+        return
       }
-      else{showToast(d.error||"{{ _('Install failed') }}","error")}
-    }).catch(function(){showToast("{{ _('Network error') }}","error")});
+      if(d.data&&d.data.needs_restart){
+        showToast(esc(id)+" {{ _('Enabled') }} — {{ _('Restarting service') }}","success");
+        /* 不再 location.reload（会按 URL 路径跳回 Dashboard）；等后端就绪后原地刷新 */
+        setTimeout(function(){_storeWaitReady(id,0)},3000);
+        return
+      }
+      showToast(esc(id)+" {{ _('Installed') }}","success");
+      if(typeof renderNav==="function")renderNav();
+      if(typeof renderStoreList==="function")renderStoreList();
+    }).catch(function(){_storeInstallState(id,false);showToast("{{ _('Network error') }}","error")});
   },"{{ _('Install') }}");
 }
 
@@ -706,7 +745,7 @@ function showPluginDetail(pid){
     }else if(p.has_update){
       actionHtml+='<button class="btn bp bs" onclick="storeUpgradePlugin(\''+escAttr(p.identifier)+'\')">🔄 {{ _('Upgrade') }}</button>';
     }else if(p.price_type==='free'){
-      actionHtml+='<button class="btn bp bs" onclick="storeInstallPlugin(\''+escAttr(p.identifier)+'\')">{{ _('Install') }}</button>';
+      actionHtml+='<button class="btn bp bs" id="storeInstallBtn" onclick="storeInstallPlugin(\''+escAttr(p.identifier)+'\')">{{ _('Install') }}</button>';
     }else{
       /* 付费：先关闭弹窗再打开购买流程，避免弹窗上下文冲突 */
       actionHtml+='<button class="btn bp bs" data-pid="'+escAttr(p.identifier)+'" data-name="'+escAttr(p.name)+'" data-amount="'+(p.price_amount||0)+'" data-ptype="'+escAttr(p.price_type)+'" data-pinterval="'+escAttr(p.price_interval||'onetime')+'" onclick="var b=this;closePluginDetail();setTimeout(function(){showPurchaseDialog(b)},100)">{{ _('Purchase') }}</button>';
@@ -922,7 +961,34 @@ function showStoreAdminForm(identifier){
     _renderStoreForm(mc,title,p);
   }
 }
+/* ── 发行版分流：清单加载 + 多选渲染（数据源 edition_catalog，label 已按当前语言本地化） ── */
+function _loadStoreEditions(cb){
+  if(window._storeEditions){if(cb)cb();return}
+  fetch('/admin/plugins/store/admin/editions',{headers:{'Authorization':'Bearer '+T}})
+    .then(function(r){return r.json()})
+    .then(function(d){window._storeEditions=((d&&d.data&&d.data.items)||[]);if(cb)cb()})
+    .catch(function(){window._storeEditions=[];if(cb)cb()});
+}
+function _editionChecks(selected){
+  var list=window._storeEditions||[];
+  var sel=selected||[];
+  if(typeof sel==='string'){try{sel=JSON.parse(sel||'[]')}catch(e){sel=[]}}
+  if(!list.length)return '<span style="font-size:12px;color:var(--dim)">{{ _('Loading...') }}</span>';
+  return list.map(function(e){
+    var id=e.edition||'';
+    if(!id)return '';
+    var ck=sel.indexOf(id)>=0?' checked':'';
+    return '<label style="display:inline-flex;align-items:center;gap:4px;margin:0 14px 6px 0;font-size:12px;cursor:pointer">'+
+      '<input type="checkbox" class="sai_edition" value="'+escAttr(id)+'"'+ck+'>'+esc(e.label||id)+'</label>';
+  }).join('');
+}
 function _renderStoreForm(container, title, p){
+  /* 发行版清单需先取回（多选字段的数据源）：首次进入先拉取，再重渲染表单 */
+  if(!window._storeEditions){
+    container.innerHTML='<div class="cd"><div class="lo"><div class="s"></div></div></div>';
+    _loadStoreEditions(function(){_renderStoreForm(container,title,p)});
+    return;
+  }
   container.innerHTML='<div class="cd"><div class="st">📝 '+title+'</div>'+
     /* ★ GitHub 导入区：从仓库自动获取元数据并回填表单 */
     '<div id="ghImportBox" style="margin:12px 0;padding:12px;background:var(--bg-secondary);border-radius:8px">'+
@@ -961,6 +1027,7 @@ function _renderStoreForm(container, title, p){
     '<div><label style="display:block;font-size:12px;margin-bottom:4px">{{ _('Download URL') }}</label><input class="in" id="sai_download" value="'+escAttr(p.download_url||'')+'" style="width:100%"></div>'+
     '<div><label style="display:block;font-size:12px;margin-bottom:4px">{{ _('Author') }}</label><input class="in" id="sai_author" value="'+escAttr(p.author||'')+'" style="width:100%"></div>'+
     '<div><label style="display:block;font-size:12px;margin-bottom:4px">{{ _('Readme URL') }} <span style="font-size:10px;color:var(--dim)">{{ _('Markdown file URL, shown in detail page') }}</span></label><input class="in" id="sai_readme" value="'+escAttr(p.readme_url||'')+'" placeholder="https://example.com/README.md" style="width:100%"><input type="hidden" id="sai_readme_cache" value="'+escAttr(p.readme_cache||'')+'"></div>'+
+    '<div style="grid-column:1/3"><label style="display:block;font-size:12px;margin-bottom:4px">{{ _('Distributions') }} <span style="font-size:10px;color:var(--dim)">{{ _('Multi-select. Leave empty to show in all distributions') }}</span></label>'+_editionChecks(p.compatible_editions)+'</div>'+
     '</div>'+
     '<div style="display:flex;gap:12px;margin-top:12px">'+
     '<button class="btn bp" onclick="saveStorePlugin()">💾 {{ _('Save') }}</button>'+
@@ -1050,6 +1117,9 @@ function saveStorePlugin(){
   d.screenshots=[];
   d.min_app_version='0.10.0';
   d.depends_on={};
+  /* 发行版分流：多选 checkbox → ID 数组；全不勾 = [] = 全版本可见。
+     必须显式回传：后端默认取 []，不回传会清空已配置的分流。 */
+  d.compatible_editions=Array.prototype.slice.call(document.querySelectorAll('.sai_edition:checked')).map(function(x){return x.value});
   if(!d.identifier||!d.name){showToast("{{ _('Identifier and Name are required') }}","error");return}
   /* ★ P8: 校验 identifier 格式 */
   if(!/^[a-z0-9_]+$/.test(d.identifier)){showToast("{{ _('Identifier must contain only lowercase letters, digits, underscores') }}","error");return}
